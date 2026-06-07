@@ -4,6 +4,9 @@ __pycache__
 node_modules
 web/node_modules
 web/dist
+data/
+config/
+reports/
 config/settings.yaml
 *.db
 .env
