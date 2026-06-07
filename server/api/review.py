@@ -19,8 +19,10 @@ from server.services.review_queries import (
     get_hot_available_dates,
     get_indices,
     get_limit_up_stats,
+    get_market_environment,
     get_connection,
     get_recent_dates,
+    get_saved_review,
     get_seal_quality,
 )
 
@@ -45,18 +47,35 @@ def get_review(date: str = Query(..., description="Trade date, e.g. 2026-06-03")
         hot_plates = get_hot_plates(conn, date)
         high_stocks = get_high_stocks(conn, date)
         all_stocks = get_all_stocks(conn, date)
+        market_environment = get_market_environment(conn, date)
+        saved_review = get_saved_review(conn, date)
         emotion = compute_emotion(conn, date, stats=stats, indices=indices)
 
         return {
             "date": date,
             "indices": indices,
             "limit_up_stats": stats,
+            "market_environment": market_environment,
+            "saved_review": saved_review,
             "board_tiers": board_tiers,
             "hot_plates": hot_plates,
             "high_stocks": high_stocks,
             "all_stocks": all_stocks,
             "emotion": emotion,
         }
+    finally:
+        conn.close()
+
+
+@router.get("/api/review/report")
+def get_review_report(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
+    """Return the generated review report for a given date."""
+    conn = get_connection()
+    try:
+        review = get_saved_review(conn, date)
+        if not review:
+            raise HTTPException(status_code=404, detail=f"No generated review for date {date}.")
+        return review
     finally:
         conn.close()
 

@@ -6,6 +6,7 @@ import { EmotionTrend } from './EmotionTrend'
 import { BoardTiers } from './BoardTiers'
 import { HotPlates } from './HotPlates'
 import { HighStocks } from './HighStocks'
+import { MarketEnvironment } from './MarketEnvironment'
 import { StockTable } from './StockTable'
 
 interface Props {
@@ -21,6 +22,7 @@ export function Overview({ data, trend }: Props) {
         <LimitUpStats stats={data.limit_up_stats} />
         <EmotionGauge emotion={data.emotion} />
       </div>
+      <MarketEnvironment data={data.market_environment} />
       <EmotionTrend trend={trend} />
       <div className="grid-2">
         <BoardTiers tiers={data.board_tiers} />

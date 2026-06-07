@@ -9,6 +9,36 @@ from pathlib import Path
 from typing import Any
 
 
+def _json_ready(value: Any) -> Any:
+    """Convert pandas/numpy-ish values into JSON-safe Python values."""
+    if value is None:
+        return None
+    try:
+        if value != value:
+            return None
+    except Exception:
+        pass
+    if isinstance(value, dict):
+        return {str(k): _json_ready(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready(v) for v in value]
+    if hasattr(value, "item"):
+        try:
+            return _json_ready(value.item())
+        except Exception:
+            pass
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return value
+
+
+def _json_text(value: Any) -> str:
+    return json.dumps(_json_ready(value), ensure_ascii=False, default=str)
+
+
 class MarketDB:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
@@ -192,6 +222,63 @@ class MarketDB:
                 primary key(trade_date, period)
             );
 
+            create table if not exists market_breadth_daily (
+                trade_date text primary key,
+                total_count integer,
+                up_count integer,
+                down_count integer,
+                flat_count integer,
+                limit_up_count integer,
+                limit_down_count integer,
+                amount real,
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp
+            );
+
+            create table if not exists limit_down_events (
+                trade_date text not null,
+                stock_code text not null,
+                stock_name text,
+                latest_price real,
+                change_pct real,
+                amount real,
+                circulation_value real,
+                total_market_cap real,
+                turnover_rate real,
+                seal_amount real,
+                last_limit_down_time text,
+                limit_down_days integer,
+                open_count integer,
+                industry text,
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(trade_date, stock_code)
+            );
+
+            create table if not exists broken_limit_up_events (
+                trade_date text not null,
+                stock_code text not null,
+                stock_name text,
+                latest_price real,
+                change_pct real,
+                limit_up_price real,
+                amount real,
+                circulation_value real,
+                total_market_cap real,
+                turnover_rate real,
+                first_limit_up_time text,
+                open_count integer,
+                limit_up_stat text,
+                amplitude real,
+                industry text,
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(trade_date, stock_code)
+            );
+
             create table if not exists market_hot_daily (
                 trade_date text not null,
                 item_key text not null,
@@ -250,6 +337,11 @@ class MarketDB:
                 highest_board integer,
                 strongest_plates text,
                 core_stocks text,
+                risk_flags text,
+                opportunities text,
+                next_plan text,
+                markdown_path text,
+                raw_payload text,
                 summary text,
                 created_at text not null default current_timestamp,
                 updated_at text not null default current_timestamp
@@ -280,6 +372,12 @@ class MarketDB:
                 on lhb_daily(trade_date);
             create index if not exists idx_stock_kline_daily_date
                 on stock_kline_daily(trade_date);
+            create index if not exists idx_market_breadth_date
+                on market_breadth_daily(trade_date);
+            create index if not exists idx_limit_down_events_date
+                on limit_down_events(trade_date);
+            create index if not exists idx_broken_limit_up_events_date
+                on broken_limit_up_events(trade_date);
 
             create table if not exists hot_stocks (
                 trade_date text not null,
@@ -320,7 +418,25 @@ class MarketDB:
                 on hot_boards(trade_date, board_type, rank_no);
             """
         )
+        self._ensure_daily_review_columns()
         self.conn.commit()
+
+    def _ensure_daily_review_columns(self) -> None:
+        """Add new report columns when upgrading an existing database."""
+        existing = {
+            row["name"]
+            for row in self.conn.execute("pragma table_info(daily_reviews)").fetchall()
+        }
+        columns = {
+            "risk_flags": "text",
+            "opportunities": "text",
+            "next_plan": "text",
+            "markdown_path": "text",
+            "raw_payload": "text",
+        }
+        for name, column_type in columns.items():
+            if name not in existing:
+                self.conn.execute(f"alter table daily_reviews add column {name} {column_type}")
 
     def import_uplimit_day(self, day_data: dict[str, Any], raw_source: str = "json") -> None:
         trade_date = day_data["date"]
@@ -515,7 +631,7 @@ class MarketDB:
     ) -> None:
         params_text = json.dumps(params, sort_keys=True, ensure_ascii=False)
         params_hash = hashlib.sha256(params_text.encode("utf-8")).hexdigest()
-        payload_text = json.dumps(payload, ensure_ascii=False)
+        payload_text = _json_text(payload)
         self.conn.execute(
             """
             insert into raw_api_responses(trade_date, source, endpoint, params_hash, payload)
@@ -536,6 +652,9 @@ class MarketDB:
             index_name = idx.get("name") or idx.get("display_name")
             close_price = idx.get("last_px")
             change_pct = idx.get("px_change_rate")
+            amount = idx.get("amount")
+            if amount is None:
+                amount = idx.get("volume")
             self.conn.execute(
                 """
                 insert into market_index_daily(trade_date, index_code, index_name, close_price, change_pct, amount, raw_payload)
@@ -554,8 +673,8 @@ class MarketDB:
                     index_name,
                     close_price,
                     change_pct,
-                    None,
-                    json.dumps(idx, ensure_ascii=False),
+                    amount,
+                    _json_text(idx),
                 ),
             )
             count += 1
@@ -614,7 +733,7 @@ class MarketDB:
                     limit_up_count,
                     item.get("limit_down_count"),
                     item.get("highest_board"),
-                    json.dumps(item, ensure_ascii=False),
+                    _json_text(item),
                 ),
             )
             count += 1
@@ -631,6 +750,361 @@ class MarketDB:
             )
         self.conn.commit()
         return count
+
+    def import_market_breadth(self, trade_date: str, snapshot: dict[str, Any]) -> int:
+        """导入全市场涨跌家数和成交额快照。"""
+        self._upsert_trade_day(trade_date)
+        self.conn.execute(
+            """
+            insert into market_breadth_daily(
+                trade_date, total_count, up_count, down_count, flat_count,
+                limit_up_count, limit_down_count, amount, raw_payload
+            )
+            values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(trade_date) do update set
+                total_count = excluded.total_count,
+                up_count = excluded.up_count,
+                down_count = excluded.down_count,
+                flat_count = excluded.flat_count,
+                limit_up_count = excluded.limit_up_count,
+                limit_down_count = excluded.limit_down_count,
+                amount = excluded.amount,
+                raw_payload = excluded.raw_payload,
+                updated_at = current_timestamp
+            """,
+            (
+                trade_date,
+                snapshot.get("total_count"),
+                snapshot.get("up_count"),
+                snapshot.get("down_count"),
+                snapshot.get("flat_count"),
+                snapshot.get("limit_up_count"),
+                snapshot.get("limit_down_count"),
+                snapshot.get("amount"),
+                _json_text(snapshot),
+            ),
+        )
+        self.conn.commit()
+        return 1
+
+    def import_limit_down_events(self, trade_date: str, records: list[dict[str, Any]]) -> int:
+        """导入跌停池数据。"""
+        self._upsert_trade_day(trade_date)
+        count = 0
+        for r in records:
+            stock_code = str(r.get("stock_code") or "")
+            if not stock_code:
+                continue
+            self._upsert_stock(stock_code, r.get("stock_name"))
+            self.conn.execute(
+                """
+                insert into limit_down_events(
+                    trade_date, stock_code, stock_name, latest_price, change_pct,
+                    amount, circulation_value, total_market_cap, turnover_rate,
+                    seal_amount, last_limit_down_time, limit_down_days,
+                    open_count, industry, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(trade_date, stock_code) do update set
+                    stock_name = excluded.stock_name,
+                    latest_price = excluded.latest_price,
+                    change_pct = excluded.change_pct,
+                    amount = excluded.amount,
+                    circulation_value = excluded.circulation_value,
+                    total_market_cap = excluded.total_market_cap,
+                    turnover_rate = excluded.turnover_rate,
+                    seal_amount = excluded.seal_amount,
+                    last_limit_down_time = excluded.last_limit_down_time,
+                    limit_down_days = excluded.limit_down_days,
+                    open_count = excluded.open_count,
+                    industry = excluded.industry,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    trade_date,
+                    stock_code,
+                    r.get("stock_name"),
+                    r.get("latest_price"),
+                    r.get("change_pct"),
+                    r.get("amount"),
+                    r.get("circulation_value"),
+                    r.get("total_market_cap"),
+                    r.get("turnover_rate"),
+                    r.get("seal_amount"),
+                    r.get("last_limit_down_time"),
+                    r.get("limit_down_days"),
+                    r.get("open_count"),
+                    r.get("industry"),
+                    _json_text(r),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_broken_limit_up_events(self, trade_date: str, records: list[dict[str, Any]]) -> int:
+        """导入炸板池数据。"""
+        self._upsert_trade_day(trade_date)
+        count = 0
+        for r in records:
+            stock_code = str(r.get("stock_code") or "")
+            if not stock_code:
+                continue
+            self._upsert_stock(stock_code, r.get("stock_name"))
+            self.conn.execute(
+                """
+                insert into broken_limit_up_events(
+                    trade_date, stock_code, stock_name, latest_price, change_pct,
+                    limit_up_price, amount, circulation_value, total_market_cap,
+                    turnover_rate, first_limit_up_time, open_count,
+                    limit_up_stat, amplitude, industry, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(trade_date, stock_code) do update set
+                    stock_name = excluded.stock_name,
+                    latest_price = excluded.latest_price,
+                    change_pct = excluded.change_pct,
+                    limit_up_price = excluded.limit_up_price,
+                    amount = excluded.amount,
+                    circulation_value = excluded.circulation_value,
+                    total_market_cap = excluded.total_market_cap,
+                    turnover_rate = excluded.turnover_rate,
+                    first_limit_up_time = excluded.first_limit_up_time,
+                    open_count = excluded.open_count,
+                    limit_up_stat = excluded.limit_up_stat,
+                    amplitude = excluded.amplitude,
+                    industry = excluded.industry,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    trade_date,
+                    stock_code,
+                    r.get("stock_name"),
+                    r.get("latest_price"),
+                    r.get("change_pct"),
+                    r.get("limit_up_price"),
+                    r.get("amount"),
+                    r.get("circulation_value"),
+                    r.get("total_market_cap"),
+                    r.get("turnover_rate"),
+                    r.get("first_limit_up_time"),
+                    r.get("open_count"),
+                    r.get("limit_up_stat"),
+                    r.get("amplitude"),
+                    r.get("industry"),
+                    _json_text(r),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_lhb_daily(self, trade_date: str, records: list[dict[str, Any]]) -> int:
+        """导入龙虎榜每日明细。"""
+        self._upsert_trade_day(trade_date)
+        count = 0
+        for r in records:
+            stock_code = str(r.get("stock_code") or "")
+            reason = r.get("reason") or ""
+            if not stock_code:
+                continue
+            self._upsert_stock(stock_code, r.get("stock_name"))
+            self.conn.execute(
+                """
+                insert into lhb_daily(
+                    trade_date, stock_code, stock_name, reason,
+                    buy_amount, sell_amount, net_buy_amount, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(trade_date, stock_code, reason) do update set
+                    stock_name = excluded.stock_name,
+                    buy_amount = excluded.buy_amount,
+                    sell_amount = excluded.sell_amount,
+                    net_buy_amount = excluded.net_buy_amount,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    trade_date,
+                    stock_code,
+                    r.get("stock_name"),
+                    reason,
+                    r.get("buy_amount"),
+                    r.get("sell_amount"),
+                    r.get("net_buy_amount"),
+                    _json_text(r),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_market_hot_daily(self, trade_date: str, records: list[dict[str, Any]]) -> int:
+        """导入市场热点列表。"""
+        self._upsert_trade_day(trade_date)
+        count = 0
+        for r in records:
+            item_key = str(r.get("item_key") or r.get("item_name") or "")
+            if not item_key:
+                continue
+            self.conn.execute(
+                """
+                insert into market_hot_daily(trade_date, item_key, item_name, score, rank_no, raw_payload)
+                values(?, ?, ?, ?, ?, ?)
+                on conflict(trade_date, item_key) do update set
+                    item_name = excluded.item_name,
+                    score = excluded.score,
+                    rank_no = excluded.rank_no,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    trade_date,
+                    item_key,
+                    r.get("item_name"),
+                    r.get("score"),
+                    r.get("rank_no"),
+                    _json_text(r),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_movement_alerts(self, trade_date: str, records: list[dict[str, Any]]) -> int:
+        """导入盘中异动提醒。"""
+        self._upsert_trade_day(trade_date)
+        count = 0
+        for r in records:
+            alert_time = str(r.get("alert_time") or "")
+            stock_code = str(r.get("stock_code") or "")
+            if not alert_time or not stock_code:
+                continue
+            self._upsert_stock(stock_code, r.get("stock_name"))
+            raw_text = _json_text(r)
+            raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+            self.conn.execute(
+                """
+                insert into movement_alerts(
+                    trade_date, alert_time, stock_code, stock_name, alert_type,
+                    alert_text, price, change_pct, raw_hash, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(trade_date, alert_time, stock_code, raw_hash) do nothing
+                """,
+                (
+                    trade_date,
+                    alert_time,
+                    stock_code,
+                    r.get("stock_name"),
+                    r.get("alert_type"),
+                    r.get("alert_text"),
+                    r.get("price"),
+                    r.get("change_pct"),
+                    raw_hash,
+                    raw_text,
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_stock_kline_daily(self, stock_code: str, records: list[dict[str, Any]]) -> int:
+        """导入个股日 K 数据。"""
+        stock_code = str(stock_code or "")
+        if not stock_code:
+            return 0
+        count = 0
+        for r in records:
+            trade_date = r.get("trade_date")
+            if not trade_date:
+                continue
+            self._upsert_trade_day(str(trade_date))
+            self.conn.execute(
+                """
+                insert into stock_kline_daily(
+                    stock_code, trade_date, open_price, high_price, low_price,
+                    close_price, volume, amount, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(stock_code, trade_date) do update set
+                    open_price = excluded.open_price,
+                    high_price = excluded.high_price,
+                    low_price = excluded.low_price,
+                    close_price = excluded.close_price,
+                    volume = excluded.volume,
+                    amount = excluded.amount,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    stock_code,
+                    str(trade_date),
+                    r.get("open_price"),
+                    r.get("high_price"),
+                    r.get("low_price"),
+                    r.get("close_price"),
+                    r.get("volume"),
+                    r.get("amount"),
+                    _json_text(r),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_daily_review(self, review: dict[str, Any]) -> int:
+        """导入自动复盘结论。"""
+        trade_date = str(review.get("trade_date") or "")
+        if not trade_date:
+            return 0
+        self._upsert_trade_day(trade_date)
+        self.conn.execute(
+            """
+            insert into daily_reviews(
+                trade_date, limit_up_stock_count, limit_up_plate_count,
+                first_board_count, multi_board_count, highest_board,
+                strongest_plates, core_stocks, risk_flags, opportunities,
+                next_plan, markdown_path, raw_payload, summary
+            )
+            values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(trade_date) do update set
+                limit_up_stock_count = excluded.limit_up_stock_count,
+                limit_up_plate_count = excluded.limit_up_plate_count,
+                first_board_count = excluded.first_board_count,
+                multi_board_count = excluded.multi_board_count,
+                highest_board = excluded.highest_board,
+                strongest_plates = excluded.strongest_plates,
+                core_stocks = excluded.core_stocks,
+                risk_flags = excluded.risk_flags,
+                opportunities = excluded.opportunities,
+                next_plan = excluded.next_plan,
+                markdown_path = excluded.markdown_path,
+                raw_payload = excluded.raw_payload,
+                summary = excluded.summary,
+                updated_at = current_timestamp
+            """,
+            (
+                trade_date,
+                review.get("limit_up_stock_count"),
+                review.get("limit_up_plate_count"),
+                review.get("first_board_count"),
+                review.get("multi_board_count"),
+                review.get("highest_board"),
+                _json_text(review.get("strongest_plates") or []),
+                _json_text(review.get("core_stocks") or []),
+                _json_text(review.get("risk_flags") or []),
+                _json_text(review.get("opportunities") or []),
+                _json_text(review.get("next_plan") or []),
+                review.get("markdown_path"),
+                _json_text(review),
+                review.get("summary"),
+            ),
+        )
+        self.conn.commit()
+        return 1
 
     def import_hot_stocks(self, trade_date: str, records: list[dict[str, Any]]) -> int:
         """导入热门股票人气榜数据"""
@@ -698,6 +1172,131 @@ class MarketDB:
             count += 1
         self.conn.commit()
         return count
+
+    def import_plate_trends(self, records: list[dict[str, Any]]) -> int:
+        """导入本地派生的板块强度趋势。"""
+        count = 0
+        for r in records:
+            plate_code = str(r.get("plate_code") or "")
+            trade_date = str(r.get("trade_date") or "")
+            if not plate_code or not trade_date:
+                continue
+            plate_name = r.get("plate_name")
+            self._upsert_trade_day(trade_date)
+            self._upsert_plate(plate_code, plate_name)
+            self.conn.execute(
+                """
+                insert into plate_trends(
+                    plate_code, trade_date, plate_name, open_price, high_price,
+                    low_price, close_price, change_pct, amount, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(plate_code, trade_date) do update set
+                    plate_name = excluded.plate_name,
+                    open_price = excluded.open_price,
+                    high_price = excluded.high_price,
+                    low_price = excluded.low_price,
+                    close_price = excluded.close_price,
+                    change_pct = excluded.change_pct,
+                    amount = excluded.amount,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    plate_code,
+                    trade_date,
+                    plate_name,
+                    r.get("open_price"),
+                    r.get("high_price"),
+                    r.get("low_price"),
+                    r.get("close_price"),
+                    r.get("change_pct"),
+                    r.get("amount"),
+                    _json_text(r.get("raw_payload") or r),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_plate_reasons(self, records: list[dict[str, Any]]) -> int:
+        """导入本地汇总的板块原因。"""
+        count = 0
+        for r in records:
+            plate_code = str(r.get("plate_code") or "")
+            if not plate_code:
+                continue
+            plate_name = r.get("plate_name")
+            self._upsert_plate(plate_code, plate_name)
+            self.conn.execute(
+                """
+                insert into plate_reasons(plate_code, plate_name, reason, raw_payload)
+                values(?, ?, ?, ?)
+                on conflict(plate_code) do update set
+                    plate_name = excluded.plate_name,
+                    reason = excluded.reason,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    plate_code,
+                    plate_name,
+                    r.get("reason"),
+                    _json_text(r.get("raw_payload") or r),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_stock_info_snapshots(self, records: list[dict[str, Any]]) -> int:
+        """导入核心个股的本地资料快照。"""
+        count = 0
+        for r in records:
+            stock_code = str(r.get("stock_code") or "")
+            snapshot_date = str(r.get("snapshot_date") or r.get("trade_date") or "")
+            if not stock_code or not snapshot_date:
+                continue
+            stock_name = r.get("stock_name")
+            self._upsert_trade_day(snapshot_date)
+            self._upsert_stock(stock_code, stock_name)
+            self.conn.execute(
+                """
+                insert into stock_info_snapshots(stock_code, snapshot_date, stock_name, raw_payload)
+                values(?, ?, ?, ?)
+                on conflict(stock_code, snapshot_date) do update set
+                    stock_name = excluded.stock_name,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    stock_code,
+                    snapshot_date,
+                    stock_name,
+                    _json_text(r.get("raw_payload") or r),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def log_data_job(
+        self,
+        job_name: str,
+        trade_date: str | None,
+        status: str,
+        message: str | None = None,
+    ) -> int:
+        """记录一次采集或派生任务。"""
+        self.conn.execute(
+            """
+            insert into data_jobs(job_name, trade_date, status, message)
+            values(?, ?, ?, ?)
+            """,
+            (job_name, trade_date, status, message),
+        )
+        self.conn.commit()
+        return 1
 
     def _parse_hot_plate(self, item: Any) -> tuple[str, str, float | None] | None:
         if isinstance(item, list) and len(item) >= 2:

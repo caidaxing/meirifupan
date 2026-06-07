@@ -10,6 +10,7 @@ __pycache__/
 
 # Data files
 data/
+reports/
 
 # Sensitive config
 config/token.json

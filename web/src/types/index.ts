@@ -71,6 +71,7 @@ export interface EmotionScoreDetail {
   score: number
   weight: number
   label: string
+  limit_down_count?: number
 }
 
 export interface EmotionScores {
@@ -97,10 +98,112 @@ export interface EmotionTrendItem {
   advice: string
 }
 
+export interface MarketBreadth {
+  total_count: number
+  up_count: number
+  down_count: number
+  flat_count: number
+  limit_up_count: number
+  limit_down_count: number
+  amount: number
+  up_rate: number
+}
+
+export interface LimitDownItem {
+  stock_code: string
+  stock_name: string
+  latest_price: number | null
+  change_pct: number | null
+  limit_down_days: number | null
+  open_count: number | null
+  industry: string | null
+}
+
+export interface BrokenLimitUpItem {
+  stock_code: string
+  stock_name: string
+  latest_price: number | null
+  change_pct: number | null
+  first_limit_up_time: string | null
+  open_count: number | null
+  limit_up_stat: string | null
+  industry: string | null
+}
+
+export interface LhbItem {
+  stock_code: string
+  stock_name: string
+  reason: string | null
+  buy_amount: number | null
+  sell_amount: number | null
+  net_buy_amount: number | null
+}
+
+export interface MovementSummaryItem {
+  alert_type: string
+  count: number
+}
+
+export interface MarketHotItem {
+  item_name: string
+  score: number | null
+  rank_no: number | null
+  raw_payload: string | null
+}
+
+export interface MarketEnvironment {
+  breadth: MarketBreadth
+  limit_down_total: number
+  broken_limit_up_total: number
+  limit_down: LimitDownItem[]
+  broken_limit_up: BrokenLimitUpItem[]
+  lhb: LhbItem[]
+  movement_summary: MovementSummaryItem[]
+  market_hot: MarketHotItem[]
+}
+
+export interface SavedReviewPlate {
+  plate_code?: string
+  plate_name: string
+  limit_up_count?: number
+  score?: number | null
+  stage?: string
+  stocks?: string[]
+}
+
+export interface SavedReviewStock {
+  stock_code: string
+  stock_name: string
+  up_limit_keep_times?: number | null
+  up_limit_time?: string | null
+  fengdan_money?: number | null
+  primary_plate?: string | null
+  reason?: string | null
+}
+
+export interface SavedReview {
+  trade_date: string
+  limit_up_stock_count: number
+  limit_up_plate_count: number
+  first_board_count: number
+  multi_board_count: number
+  highest_board: number
+  strongest_plates: SavedReviewPlate[]
+  core_stocks: SavedReviewStock[]
+  risk_flags: string[]
+  opportunities: string[]
+  next_plan: string[]
+  summary: string
+  markdown_path?: string | null
+  updated_at?: string | null
+}
+
 export interface ReviewData {
   date: string
   indices: IndexData[]
   limit_up_stats: LimitUpStats
+  market_environment: MarketEnvironment
+  saved_review: SavedReview | null
   board_tiers: BoardTier[]
   hot_plates: HotPlate[]
   high_stocks: HighStock[]
@@ -169,4 +272,37 @@ export interface MarketInsights {
   board_advancement: BoardAdvancement[]
   capital_flow: CapitalFlow[]
   hot_stocks: HotStock[]
+}
+
+// --- Hot Data ---
+
+export interface HotStockRank {
+  rank_no: number
+  stock_code: string
+  stock_name: string | null
+  latest_price: number | null
+  change_pct: number | null
+  change_amount: number | null
+}
+
+export interface HotBoardRank {
+  rank_no: number
+  board_code: string
+  board_name: string | null
+  latest_price: number | null
+  change_pct: number | null
+  change_amount: number | null
+  total_market_cap: number | null
+  turnover_rate: number | null
+  up_count: number | null
+  down_count: number | null
+  leading_stock: string | null
+  leading_stock_change: number | null
+}
+
+export interface HotData {
+  date: string
+  hot_stocks: HotStockRank[]
+  concept_boards: HotBoardRank[]
+  industry_boards: HotBoardRank[]
 }

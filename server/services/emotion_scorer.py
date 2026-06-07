@@ -10,7 +10,7 @@ import sqlite3
 from typing import Any
 
 
-# Default limit-down count when sentiment_daily data is missing
+# Fallback when limit-down data is missing
 DEFAULT_LIMIT_DOWN = 3
 
 # Scoring thresholds: list of (upper_bound, score)
@@ -105,6 +105,19 @@ def compute_emotion(
 
     # --- 3. Limit-up / limit-down ratio ---
     limit_down = DEFAULT_LIMIT_DOWN
+    row = conn.execute(
+        """
+        SELECT
+            COALESCE(
+                (SELECT COUNT(*) FROM limit_down_events WHERE trade_date = ?),
+                0
+            ) as event_count,
+            (SELECT limit_down_count FROM market_breadth_daily WHERE trade_date = ?) as breadth_count
+        """,
+        (date, date),
+    ).fetchone()
+    if row:
+        limit_down = row["event_count"] or row["breadth_count"] or DEFAULT_LIMIT_DOWN
     limit_ratio = total / limit_down if limit_down > 0 else total
 
     # --- 4. Compute individual scores ---
@@ -132,6 +145,7 @@ def compute_emotion(
             "score": _threshold_score(limit_ratio, LIMIT_RATIO_THRESHOLDS),
             "weight": 0.15,
             "label": "涨跌停比",
+            "limit_down_count": limit_down,
         },
         "market_change": {
             "value": market_change,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from datetime import datetime, timedelta
@@ -25,6 +26,16 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def _rows_to_list(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
     return [_row_to_dict(r) for r in rows]
+
+
+def _json_list(value: str | None) -> list[Any]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def get_indices(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
@@ -320,6 +331,140 @@ def get_recent_dates(conn: sqlite3.Connection, date: str, days: int) -> list[str
         (date, days),
     ).fetchall()
     return [r["trade_date"] for r in rows]
+
+
+def get_market_environment(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
+    """Get broad market context for daily review."""
+    breadth_row = conn.execute(
+        """
+        SELECT total_count, up_count, down_count, flat_count,
+               limit_up_count, limit_down_count, amount
+        FROM market_breadth_daily
+        WHERE trade_date = ?
+        """,
+        (date,),
+    ).fetchone()
+    breadth = _row_to_dict(breadth_row) if breadth_row else {
+        "total_count": 0,
+        "up_count": 0,
+        "down_count": 0,
+        "flat_count": 0,
+        "limit_up_count": 0,
+        "limit_down_count": 0,
+        "amount": 0,
+    }
+    total = breadth.get("total_count") or 0
+    breadth["up_rate"] = round((breadth.get("up_count") or 0) / total * 100, 1) if total else 0
+
+    limit_down_total = conn.execute(
+        "SELECT COUNT(*) as total FROM limit_down_events WHERE trade_date = ?",
+        (date,),
+    ).fetchone()["total"]
+    broken_limit_up_total = conn.execute(
+        "SELECT COUNT(*) as total FROM broken_limit_up_events WHERE trade_date = ?",
+        (date,),
+    ).fetchone()["total"]
+
+    if not breadth.get("limit_up_count"):
+        breadth["limit_up_count"] = conn.execute(
+            "SELECT COUNT(*) as total FROM limit_up_events WHERE trade_date = ?",
+            (date,),
+        ).fetchone()["total"]
+    if not breadth.get("limit_down_count") and limit_down_total:
+        breadth["limit_down_count"] = limit_down_total
+
+    limit_down_rows = conn.execute(
+        """
+        SELECT stock_code, stock_name, latest_price, change_pct,
+               limit_down_days, open_count, industry
+        FROM limit_down_events
+        WHERE trade_date = ?
+        ORDER BY change_pct ASC, amount DESC
+        LIMIT 20
+        """,
+        (date,),
+    ).fetchall()
+
+    broken_rows = conn.execute(
+        """
+        SELECT stock_code, stock_name, latest_price, change_pct,
+               first_limit_up_time, open_count, limit_up_stat, industry
+        FROM broken_limit_up_events
+        WHERE trade_date = ?
+        ORDER BY open_count DESC, amount DESC
+        LIMIT 20
+        """,
+        (date,),
+    ).fetchall()
+
+    lhb_rows = conn.execute(
+        """
+        SELECT stock_code, stock_name, reason, buy_amount, sell_amount, net_buy_amount
+        FROM lhb_daily
+        WHERE trade_date = ?
+        ORDER BY ABS(COALESCE(net_buy_amount, 0)) DESC
+        LIMIT 20
+        """,
+        (date,),
+    ).fetchall()
+
+    movement_rows = conn.execute(
+        """
+        SELECT alert_type, COUNT(*) as count
+        FROM movement_alerts
+        WHERE trade_date = ?
+        GROUP BY alert_type
+        ORDER BY count DESC
+        LIMIT 12
+        """,
+        (date,),
+    ).fetchall()
+
+    market_hot_rows = conn.execute(
+        """
+        SELECT item_name, score, rank_no, raw_payload
+        FROM market_hot_daily
+        WHERE trade_date = ?
+        ORDER BY rank_no
+        LIMIT 12
+        """,
+        (date,),
+    ).fetchall()
+
+    return {
+        "breadth": breadth,
+        "limit_down_total": limit_down_total,
+        "broken_limit_up_total": broken_limit_up_total,
+        "limit_down": _rows_to_list(limit_down_rows),
+        "broken_limit_up": _rows_to_list(broken_rows),
+        "lhb": _rows_to_list(lhb_rows),
+        "movement_summary": _rows_to_list(movement_rows),
+        "market_hot": _rows_to_list(market_hot_rows),
+    }
+
+
+def get_saved_review(conn: sqlite3.Connection, date: str) -> dict[str, Any] | None:
+    """Get the generated structured review if it has been saved."""
+    row = conn.execute(
+        """
+        SELECT trade_date, limit_up_stock_count, limit_up_plate_count,
+               first_board_count, multi_board_count, highest_board,
+               strongest_plates, core_stocks, risk_flags, opportunities,
+               next_plan, markdown_path, summary, updated_at
+        FROM daily_reviews
+        WHERE trade_date = ?
+        """,
+        (date,),
+    ).fetchone()
+    if not row:
+        return None
+    review = _row_to_dict(row)
+    review["strongest_plates"] = _json_list(review.pop("strongest_plates"))
+    review["core_stocks"] = _json_list(review.pop("core_stocks"))
+    review["risk_flags"] = _json_list(review.pop("risk_flags", None))
+    review["opportunities"] = _json_list(review.pop("opportunities", None))
+    review["next_plan"] = _json_list(review.pop("next_plan", None))
+    return review
 
 
 def get_seal_quality(conn: sqlite3.Connection, date: str) -> dict[str, Any]:

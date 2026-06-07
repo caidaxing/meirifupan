@@ -2,6 +2,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 
@@ -32,6 +33,9 @@ class MarketDbTests(unittest.TestCase):
             "stock_kline_daily",
             "stock_trends",
             "stock_info_snapshots",
+            "market_breadth_daily",
+            "limit_down_events",
+            "broken_limit_up_events",
             "daily_reviews",
             "data_jobs",
         }
@@ -182,6 +186,41 @@ class MarketDbTests(unittest.TestCase):
             self.assertEqual(1, conn.execute("select count(*) from plate_hot_rank").fetchone()[0])
             conn.close()
 
+    def test_fetch_uplimit_data_still_writes_when_plate_rank_fails(self):
+        from db import MarketDB
+        from fetch_uplimit import fetch_uplimit_data
+
+        class FakeAPI:
+            def get_uplimit_reason(self, date, page_size=200):
+                return {
+                    "code": 20000,
+                    "data": [
+                        {
+                            "plate_code": "801001",
+                            "plate_name": "芯片",
+                            "stocks": [{"stock_code": "002918", "stock_name": "蒙娜丽莎"}],
+                        }
+                    ],
+                }
+
+            def get_uplimit_hot(self, date, limit=20):
+                return {"code": 20000, "data": {"plate": [["芯片", "801001", 100]]}}
+
+            def get_plate_rank(self, date, limit=30):
+                raise RuntimeError("unauthorized")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            fetch_uplimit_data(FakeAPI(), "2026-06-05", db=db)
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            self.assertEqual(1, conn.execute("select count(*) from limit_up_events").fetchone()[0])
+            self.assertEqual(1, conn.execute("select count(*) from plate_hot_rank").fetchone()[0])
+            conn.close()
+
     def test_build_html_preview_contains_market_sections(self):
         from db import MarketDB
         from build_data_preview_html import build_html_preview
@@ -252,6 +291,456 @@ class MarketDbTests(unittest.TestCase):
         self.assertIn("市场数据预览", body)
         self.assertIn("蒙娜丽莎", body)
         self.assertIn("2026-06-01", body)
+
+    def test_import_market_breadth_keeps_daily_snapshot(self):
+        from db import MarketDB
+
+        snapshot = {
+            "trade_date": "2026-06-03",
+            "total_count": 5300,
+            "up_count": 3100,
+            "down_count": 1900,
+            "flat_count": 300,
+            "limit_up_count": 90,
+            "limit_down_count": 11,
+            "amount": 1_200_000_000_000,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            self.assertEqual(1, db.import_market_breadth("2026-06-03", snapshot))
+            self.assertEqual(1, db.import_market_breadth("2026-06-03", {**snapshot, "up_count": 3200}))
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            row = conn.execute(
+                "select count(*), up_count from market_breadth_daily where trade_date = '2026-06-03'"
+            ).fetchone()
+            self.assertEqual((1, 3200), row)
+            conn.close()
+
+    def test_import_limit_down_and_broken_boards_deduplicates_by_date_and_code(self):
+        from db import MarketDB
+
+        limit_down = [
+            {
+                "stock_code": "003030",
+                "stock_name": "祖名股份",
+                "latest_price": 21.47,
+                "change_pct": -9.98,
+                "amount": 154983774,
+                "limit_down_days": 1,
+                "open_count": 6,
+                "industry": "农产品加工",
+            }
+        ]
+        broken = [
+            {
+                "stock_code": "600696",
+                "stock_name": "退市岩石",
+                "latest_price": 0.63,
+                "change_pct": 3.28,
+                "first_limit_up_time": "09:25:02",
+                "open_count": 1,
+                "limit_up_stat": "2/1",
+                "industry": "白酒",
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            self.assertEqual(1, db.import_limit_down_events("2026-06-03", limit_down))
+            self.assertEqual(1, db.import_limit_down_events("2026-06-03", limit_down))
+            self.assertEqual(1, db.import_broken_limit_up_events("2026-06-03", broken))
+            self.assertEqual(1, db.import_broken_limit_up_events("2026-06-03", broken))
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            self.assertEqual(1, conn.execute("select count(*) from limit_down_events").fetchone()[0])
+            self.assertEqual(1, conn.execute("select count(*) from broken_limit_up_events").fetchone()[0])
+            conn.close()
+
+    def test_import_lhb_market_hot_movement_and_kline(self):
+        from db import MarketDB
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            self.assertEqual(1, db.import_lhb_daily("2026-06-03", [{
+                "stock_code": "000539",
+                "stock_name": "粤电力A",
+                "reason": "日振幅值达到15%的前5只证券",
+                "buy_amount": 374078893.7,
+                "sell_amount": 628527020.82,
+                "net_buy_amount": -254448127.12,
+            }]))
+            self.assertEqual(1, db.import_market_hot_daily("2026-06-03", [{
+                "item_key": "AI应用",
+                "item_name": "AI应用",
+                "score": 498,
+                "rank_no": 1,
+            }]))
+            self.assertEqual(1, db.import_movement_alerts("2026-06-03", [{
+                "alert_time": "14:30:00",
+                "stock_code": "002918",
+                "stock_name": "蒙娜丽莎",
+                "alert_type": "尾盘拉升",
+                "alert_text": "尾盘快速拉升",
+                "price": 14.0,
+                "change_pct": 5.2,
+            }]))
+            self.assertEqual(1, db.import_stock_kline_daily("002918", [{
+                "trade_date": "2026-06-03",
+                "open_price": 13.0,
+                "high_price": 14.0,
+                "low_price": 12.8,
+                "close_price": 14.0,
+                "volume": 10000,
+                "amount": 14000000,
+            }]))
+            self.assertEqual(1, db.import_index_daily("2026-06-03", [{
+                "code": "000001.SS",
+                "name": "上证指数",
+                "last_px": 4083.97,
+                "px_change_rate": 0.22,
+                "amount": 66000000000,
+                "raw": {"date": date(2026, 6, 3)},
+            }]))
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            self.assertEqual(1, conn.execute("select count(*) from lhb_daily").fetchone()[0])
+            self.assertEqual(1, conn.execute("select count(*) from market_hot_daily").fetchone()[0])
+            self.assertEqual(1, conn.execute("select count(*) from movement_alerts").fetchone()[0])
+            self.assertEqual(1, conn.execute("select count(*) from stock_kline_daily").fetchone()[0])
+            row = conn.execute(
+                "select index_name, close_price, change_pct, amount from market_index_daily where index_code = '000001.SS'"
+            ).fetchone()
+            self.assertEqual(("上证指数", 4083.97, 0.22, 66000000000), row)
+            conn.close()
+
+    def test_market_environment_reports_totals_separately_from_preview_lists(self):
+        from db import MarketDB
+        from server.services.review_queries import get_market_environment
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = MarketDB(Path(tmp) / "market.db")
+            db.init_schema()
+            db.import_uplimit_day({
+                "date": "2026-06-05",
+                "uplimit_reason": [
+                    {
+                        "plate_code": "801001",
+                        "plate_name": "芯片",
+                        "stocks": [{"stock_code": "002918", "stock_name": "蒙娜丽莎"}],
+                    }
+                ],
+                "uplimit_hot": [],
+                "plate_rank": [],
+            })
+            db.import_market_breadth("2026-06-05", {
+                "total_count": 5000,
+                "up_count": 2500,
+                "down_count": 2400,
+                "flat_count": 100,
+                "limit_up_count": 1,
+                "limit_down_count": 0,
+                "amount": 1_000_000_000_000,
+            })
+            db.import_limit_down_events("2026-06-05", [
+                {
+                    "stock_code": f"00{i:04d}",
+                    "stock_name": f"跌停{i}",
+                    "change_pct": -10,
+                    "amount": i,
+                }
+                for i in range(25)
+            ])
+            db.import_broken_limit_up_events("2026-06-05", [
+                {
+                    "stock_code": f"60{i:04d}",
+                    "stock_name": f"炸板{i}",
+                    "change_pct": 5,
+                    "amount": i,
+                    "open_count": i % 5,
+                }
+                for i in range(30)
+            ])
+
+            result = get_market_environment(db.conn, "2026-06-05")
+            db.close()
+
+        self.assertEqual(25, result["limit_down_total"])
+        self.assertEqual(30, result["broken_limit_up_total"])
+        self.assertEqual(20, len(result["limit_down"]))
+        self.assertEqual(20, len(result["broken_limit_up"]))
+        self.assertEqual(25, result["breadth"]["limit_down_count"])
+
+    def test_generate_daily_review_saves_structured_report_and_markdown(self):
+        from db import MarketDB
+        from generate_review import generate_daily_review
+        from server.services.review_queries import get_saved_review
+
+        sample = {
+            "date": "2026-06-05",
+            "uplimit_reason": [
+                {
+                    "plate_code": "801001",
+                    "plate_name": "芯片",
+                    "plate_score": 100,
+                    "stocks": [
+                        {
+                            "stock_code": "002918",
+                            "stock_name": "蒙娜丽莎",
+                            "up_limit_desc": "3连板",
+                            "up_limit_keep_times": 3,
+                            "up_limit_time": "09:31",
+                            "fengdan_money": 90_000_000,
+                            "reason": "芯片景气",
+                        },
+                        {
+                            "stock_code": "300001",
+                            "stock_name": "特锐德",
+                            "up_limit_desc": "首板",
+                            "up_limit_keep_times": 1,
+                            "up_limit_time": "10:01",
+                            "fengdan_money": 50_000_000,
+                            "reason": "充电桩",
+                        },
+                    ],
+                },
+                {
+                    "plate_code": "801002",
+                    "plate_name": "机器人",
+                    "plate_score": 80,
+                    "stocks": [
+                        {
+                            "stock_code": "002918",
+                            "stock_name": "蒙娜丽莎",
+                            "up_limit_desc": "3连板",
+                            "up_limit_keep_times": 3,
+                            "up_limit_time": "09:31",
+                            "fengdan_money": 90_000_000,
+                            "reason": "机器人叠加",
+                        },
+                        {
+                            "stock_code": "600001",
+                            "stock_name": "机器人A",
+                            "up_limit_desc": "2连板",
+                            "up_limit_keep_times": 2,
+                            "up_limit_time": "09:45",
+                            "fengdan_money": 60_000_000,
+                            "reason": "机器人催化",
+                        },
+                    ],
+                },
+            ],
+            "uplimit_hot": [["芯片", "801001", 100], ["机器人", "801002", 80]],
+            "plate_rank": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            out_dir = Path(tmp) / "reports"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_uplimit_day(sample, raw_source="unit-test")
+            db.import_market_breadth("2026-06-05", {
+                "total_count": 5000,
+                "up_count": 2600,
+                "down_count": 2200,
+                "flat_count": 200,
+                "limit_up_count": 3,
+                "limit_down_count": 2,
+                "amount": 1_100_000_000_000,
+            })
+            db.import_broken_limit_up_events("2026-06-05", [
+                {"stock_code": f"60{i:04d}", "stock_name": f"炸板{i}", "open_count": 2}
+                for i in range(8)
+            ])
+            db.close()
+
+            review = generate_daily_review("2026-06-05", db_path=db_path, output_dir=out_dir)
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            saved = get_saved_review(conn, "2026-06-05")
+            conn.close()
+
+            self.assertEqual("2026-06-05", review["trade_date"])
+            self.assertIn("芯片", review["summary"])
+            self.assertTrue(review["risk_flags"])
+            self.assertTrue(review["next_plan"])
+            self.assertEqual(3, review["limit_up_stock_count"])
+            self.assertEqual(1, review["first_board_count"])
+            self.assertEqual(2, review["multi_board_count"])
+            self.assertEqual("芯片", review["strongest_plates"][0]["plate_name"])
+            self.assertEqual("蒙娜丽莎", review["core_stocks"][0]["stock_name"])
+            self.assertIsNotNone(saved)
+            self.assertEqual("2026-06-05", saved["trade_date"])
+            self.assertEqual(1, saved["first_board_count"])
+            self.assertEqual(2, saved["multi_board_count"])
+            self.assertIn("芯片", saved["summary"])
+            self.assertTrue(Path(saved["markdown_path"]).exists())
+            self.assertIn("# A股复盘 2026-06-05", Path(saved["markdown_path"]).read_text(encoding="utf-8"))
+
+    def test_derive_review_data_populates_local_summary_tables(self):
+        from db import MarketDB
+        from derive_review_data import derive_review_data
+
+        day1 = {
+            "date": "2026-06-04",
+            "uplimit_reason": [
+                {
+                    "plate_code": "801001",
+                    "plate_name": "芯片",
+                    "plate_score": 70,
+                    "stocks": [
+                        {
+                            "stock_code": "002918",
+                            "stock_name": "蒙娜丽莎",
+                            "up_limit_desc": "2连板",
+                            "up_limit_keep_times": 2,
+                            "up_limit_time": "09:35",
+                            "fengdan_money": 40_000_000,
+                            "reason": "芯片老龙反包",
+                        }
+                    ],
+                }
+            ],
+            "uplimit_hot": [["芯片", "801001", 70]],
+            "plate_rank": [],
+        }
+        day2 = {
+            "date": "2026-06-05",
+            "uplimit_reason": [
+                {
+                    "plate_code": "801001",
+                    "plate_name": "芯片",
+                    "plate_score": 100,
+                    "stocks": [
+                        {
+                            "stock_code": "002918",
+                            "stock_name": "蒙娜丽莎",
+                            "up_limit_desc": "3连板",
+                            "up_limit_keep_times": 3,
+                            "up_limit_time": "09:31",
+                            "fengdan_money": 90_000_000,
+                            "reason": "芯片景气",
+                        },
+                        {
+                            "stock_code": "300001",
+                            "stock_name": "特锐德",
+                            "up_limit_desc": "首板",
+                            "up_limit_keep_times": 1,
+                            "up_limit_time": "10:01",
+                            "fengdan_money": 50_000_000,
+                            "reason": "充电桩叠加芯片",
+                        },
+                    ],
+                }
+            ],
+            "uplimit_hot": [["芯片", "801001", 100]],
+            "plate_rank": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_uplimit_day(day1, raw_source="unit-test")
+            db.import_uplimit_day(day2, raw_source="unit-test")
+            db.import_stock_kline_daily("002918", [
+                {
+                    "trade_date": "2026-06-05",
+                    "open_price": 13.2,
+                    "high_price": 14.0,
+                    "low_price": 13.0,
+                    "close_price": 14.0,
+                    "volume": 10000,
+                    "amount": 14000000,
+                }
+            ])
+            db.import_daily_review({
+                "trade_date": "2026-06-05",
+                "limit_up_stock_count": 2,
+                "limit_up_plate_count": 1,
+                "first_board_count": 1,
+                "multi_board_count": 1,
+                "highest_board": 3,
+                "strongest_plates": [{"plate_code": "801001", "plate_name": "芯片"}],
+                "core_stocks": [{"stock_code": "002918", "stock_name": "蒙娜丽莎"}],
+                "risk_flags": [],
+                "opportunities": [],
+                "next_plan": [],
+                "summary": "芯片继续走强",
+            })
+            db.close()
+
+            counts = derive_review_data(db_path)
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            trend = conn.execute(
+                """
+                select close_price, change_pct, amount, raw_payload
+                from plate_trends
+                where plate_code = '801001' and trade_date = '2026-06-05'
+                """
+            ).fetchone()
+            reason = conn.execute(
+                "select reason, raw_payload from plate_reasons where plate_code = '801001'"
+            ).fetchone()
+            snapshot = conn.execute(
+                """
+                select stock_name, raw_payload
+                from stock_info_snapshots
+                where stock_code = '002918' and snapshot_date = '2026-06-05'
+                """
+            ).fetchone()
+            job_count = conn.execute("select count(*) from data_jobs").fetchone()[0]
+            conn.close()
+
+        self.assertGreaterEqual(counts["plate_trends"], 2)
+        self.assertGreaterEqual(counts["plate_reasons"], 1)
+        self.assertGreaterEqual(counts["stock_info_snapshots"], 1)
+        self.assertEqual(2, trend["close_price"])
+        self.assertEqual(100.0, trend["change_pct"])
+        self.assertEqual(140_000_000, trend["amount"])
+        self.assertIn("蒙娜丽莎", reason["reason"])
+        self.assertIn("芯片景气", reason["raw_payload"])
+        self.assertEqual("蒙娜丽莎", snapshot["stock_name"])
+        self.assertIn('"close_price": 14.0', snapshot["raw_payload"])
+        self.assertGreaterEqual(job_count, 1)
+
+    def test_fetch_hot_resolves_latest_local_trade_day(self):
+        from db import MarketDB
+        from fetch_hot import resolve_hot_trade_date
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = MarketDB(Path(tmp) / "market.db")
+            db.init_schema()
+            db.import_uplimit_day({
+                "date": "2026-06-05",
+                "uplimit_reason": [
+                    {
+                        "plate_code": "801001",
+                        "plate_name": "芯片",
+                        "stocks": [{"stock_code": "002918", "stock_name": "蒙娜丽莎"}],
+                    }
+                ],
+                "uplimit_hot": [],
+                "plate_rank": [],
+            })
+
+            self.assertEqual("2026-06-05", resolve_hot_trade_date(db))
+            self.assertEqual("2026-06-03", resolve_hot_trade_date(db, "2026-06-03"))
+            db.close()
 
 
 if __name__ == "__main__":

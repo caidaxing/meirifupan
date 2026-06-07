@@ -97,13 +97,17 @@ def fetch_uplimit_data(api: QuantAPI, date: str, db: MarketDB):
 
     # 3. 板块排名
     print("  [3/3] 板块排名...")
-    rank_data = api.get_plate_rank(date, limit=30)
-    if rank_data.get("code") == 20000 and rank_data.get("data"):
-        plate_ranks = rank_data["data"]
-        print(f"    ✅ {len(plate_ranks)} 个板块")
-    else:
+    try:
+        rank_data = api.get_plate_rank(date, limit=30)
+        if rank_data.get("code") == 20000 and rank_data.get("data"):
+            plate_ranks = rank_data["data"]
+            print(f"    ✅ {len(plate_ranks)} 个板块")
+        else:
+            plate_ranks = []
+            print(f"    ⚠️  无数据")
+    except Exception as e:
         plate_ranks = []
-        print(f"    ⚠️  无数据")
+        print(f"    ⚠️  板块排名失败，跳过: {e}")
 
     day_data = {
         "date": date,

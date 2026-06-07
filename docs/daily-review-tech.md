@@ -52,13 +52,13 @@
 | 6 | 盘中异动 | `get_alerts(date)` | `movement_alerts` | 全量覆盖当日 |
 | 7 | 情绪K线 | `get_sentiment_kline(date)` | `sentiment_daily` | 全量覆盖当日 |
 | 8 | 市场热点 | `get_market_hot(date)` | `market_hot_daily` | 全量覆盖当日 |
-| 9 | 板块趋势(热门) | `get_plate_trend(code, start, end)` | `plate_trends` | 增量（追加） |
-| 10 | 板块原因 | `get_plate_reason(code)` | `plate_reasons` | 按需更新 |
+| 9 | 板块趋势(热门) | 本地涨停板块映射派生 | `plate_trends` | 回补后重算 |
+| 10 | 板块原因 | 本地涨停原因和代表股汇总 | `plate_reasons` | 回补后重算 |
 
 **不需要每日采集的**：
 - `stock_kline_daily` -- 个股日K，量太大，按需（关注的个股才爬）
-- `stock_trends` -- 个股分时，盘中实时数据，复盘不需要
-- `stock_info_snapshots` -- 个股资料，低频变化，按需更新
+- `stock_trends` -- 个股分时，盘中实时数据，当前复盘只看日线维度以上，不采集
+- `stock_info_snapshots` -- 核心股资料快照，由本地复盘数据派生
 
 ### 2.2 api_client.py 新增方法
 

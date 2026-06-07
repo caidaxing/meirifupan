@@ -1,4 +1,4 @@
-export type TabKey = 'plate' | 'tier' | 'emotion' | 'insight' | 'overview'
+export type TabKey = 'report' | 'plate' | 'tier' | 'emotion' | 'insight' | 'hot' | 'overview'
 
 interface Props {
   active: TabKey
@@ -6,10 +6,12 @@ interface Props {
 }
 
 const tabs: { key: TabKey; label: string }[] = [
+  { key: 'report', label: '复盘报告' },
   { key: 'plate', label: '涨停原因' },
   { key: 'tier', label: '连板梯队' },
   { key: 'emotion', label: '情绪分析' },
   { key: 'insight', label: '市场洞察' },
+  { key: 'hot', label: '热门' },
   { key: 'overview', label: '数据总览' },
 ]
 
