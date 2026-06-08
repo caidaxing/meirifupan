@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useCallback } from 'react'
 import type { StockItem } from '../types'
+import { ExpandableText } from './ExpandableText'
 
 interface Props {
   stocks: StockItem[]
@@ -181,8 +182,8 @@ export function PlateGroupView({ stocks, embedded = false }: Props) {
                           <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(s.fengdan_money)}</td>
                           <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(s.amount)}</td>
                           {showReason && (
-                            <td style={{ color: 'var(--text-secondary)', fontSize: '12px', maxWidth: '200px', whiteSpace: 'normal' }}>
-                              {s.reason}
+                            <td className="reason-cell">
+                              <ExpandableText text={s.reason} />
                             </td>
                           )}
                         </tr>

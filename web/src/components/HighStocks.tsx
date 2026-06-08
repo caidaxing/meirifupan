@@ -1,4 +1,5 @@
 import type { HighStock } from '../types'
+import { ExpandableText } from './ExpandableText'
 
 interface Props {
   stocks: HighStock[]
@@ -34,8 +35,8 @@ export function HighStocks({ stocks }: Props) {
                     ))}
                   </div>
                 </td>
-                <td style={{ color: 'var(--text-secondary)', maxWidth: '200px', whiteSpace: 'normal' }}>
-                  {stock.reason}
+                <td className="reason-cell">
+                  <ExpandableText text={stock.reason} />
                 </td>
               </tr>
             ))}

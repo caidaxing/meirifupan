@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { StockItem } from '../types'
+import { ExpandableText } from './ExpandableText'
 
 interface Props {
   stocks: StockItem[]
@@ -120,8 +121,8 @@ export function StockTable({ stocks }: Props) {
                     {stock.plates.length > 2 && <span className="tag">+{stock.plates.length - 2}</span>}
                   </div>
                 </td>
-                <td style={{ color: 'var(--text-secondary)', maxWidth: '150px', whiteSpace: 'normal', fontSize: '12px' }}>
-                  {stock.reason}
+                <td className="reason-cell reason-cell-compact">
+                  <ExpandableText text={stock.reason} />
                 </td>
               </tr>
             ))}

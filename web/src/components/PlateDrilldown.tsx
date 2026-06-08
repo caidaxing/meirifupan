@@ -1,4 +1,5 @@
 import type { StockItem } from '../types'
+import { ExpandableText } from './ExpandableText'
 
 interface Props {
   plateName: string
@@ -78,8 +79,8 @@ export function PlateDrilldown({ plateName, stocks = [], onClose }: Props) {
                     <td>{stock.up_limit_type}</td>
                     <td>{(stock.fengdan_money / 10000).toFixed(0)}万</td>
                     <td>{(stock.amount / 10000).toFixed(0)}万</td>
-                    <td style={{ color: 'var(--text-secondary)', maxWidth: '200px', whiteSpace: 'normal', fontSize: '12px' }}>
-                      {stock.reason}
+                    <td className="reason-cell">
+                      <ExpandableText text={stock.reason} />
                     </td>
                   </tr>
                 ))}

@@ -1,4 +1,5 @@
 import type { EmotionTrendItem, HotData, ReviewData } from '../types'
+import { CollapsibleSection } from './CollapsibleSection'
 import { EmotionDetail } from './EmotionDetail'
 import { HotView } from './HotView'
 import { ReviewReport } from './ReviewReport'
@@ -15,14 +16,18 @@ export function EmotionReview({ data, trend, hotData, hotLoading, hotError }: Pr
   return (
     <div className="review-stack">
       <ReviewReport review={data.saved_review} mode="emotion" />
-      <EmotionDetail emotion={data.emotion} trend={trend} />
-      {hotLoading ? (
-        <div className="loading">加载热门数据...</div>
-      ) : hotData ? (
-        <HotView data={hotData} />
-      ) : (
-        <div className="error">{hotError ?? '暂无热门数据'}</div>
-      )}
+      <CollapsibleSection title="情绪评分细节" summary="拆开看各项分数">
+        <EmotionDetail emotion={data.emotion} trend={trend} />
+      </CollapsibleSection>
+      <CollapsibleSection title="热门榜明细" summary={hotData ? `${hotData.hot_stocks.length} 只人气股` : '按需查看'}>
+        {hotLoading ? (
+          <div className="loading">加载热门数据...</div>
+        ) : hotData ? (
+          <HotView data={hotData} />
+        ) : (
+          <div className="error">{hotError ?? '暂无热门数据'}</div>
+        )}
+      </CollapsibleSection>
     </div>
   )
 }

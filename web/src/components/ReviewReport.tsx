@@ -1,4 +1,6 @@
 import type { SavedReview, SavedReviewHotStock, SavedReviewPlateReview, SavedReviewWatchStock } from '../types'
+import { CollapsibleSection } from './CollapsibleSection'
+import { ExpandableText } from './ExpandableText'
 
 interface Props {
   review: SavedReview | null
@@ -78,9 +80,8 @@ export function ReviewReport({ review, mode = 'full' }: Props) {
 
       {showEmotion && showFocusSections && (
         <div className="report-grid report-focus-grid">
-          <section className="card">
-            <div className="card-header">人气核心</div>
-            <div className="card-body report-list">
+          <CollapsibleSection title="人气核心" summary={summaryTags.length > 0 ? summaryTags.join(' · ') : `${hotStocks.length} 只`} defaultOpen>
+            <div className="report-list">
               {summaryText && <p className="report-focus-text">{summaryText}</p>}
               {summaryTags.length > 0 && (
                 <div className="report-tags report-summary-tags">
@@ -93,35 +94,32 @@ export function ReviewReport({ review, mode = 'full' }: Props) {
                 <div className="report-empty report-empty-compact">暂无人气股数据</div>
               )}
             </div>
-          </section>
+          </CollapsibleSection>
 
-          <section className="card">
-            <div className="card-header">观察名单</div>
-            <div className="card-body report-list">
+          <CollapsibleSection title="观察名单" summary={`${watchStocks.length} 只`}>
+            <div className="report-list">
               {watchStocks.length > 0 ? (
                 watchStocks.map(stock => <WatchStockRow key={`${stock.stock_code}-${stock.category}`} stock={stock} />)
               ) : (
                 <div className="report-empty report-empty-compact">暂无观察名单</div>
               )}
             </div>
-          </section>
+          </CollapsibleSection>
         </div>
       )}
 
       {showEmotion && plateReviews.length > 0 && (
-        <section className="card">
-          <div className="card-header">核心板块复盘</div>
-          <div className="card-body report-plate-review-list">
+        <CollapsibleSection title="核心板块复盘" summary={`${plateReviews.length} 个板块`}>
+          <div className="report-plate-review-list">
             {plateReviews.map(plate => <PlateReviewCard key={plate.plate_code} plate={plate} />)}
           </div>
-        </section>
+        </CollapsibleSection>
       )}
 
       {showLimitUp && (
       <div className="report-grid">
-        <section className="card">
-          <div className="card-header">{plateReviews.length > 0 ? '主线板块速览' : '主线板块'}</div>
-          <div className="card-body report-list">
+        <CollapsibleSection title={plateReviews.length > 0 ? '主线板块速览' : '主线板块'} summary={`${review.strongest_plates.length} 个板块`}>
+          <div className="report-list">
             {review.strongest_plates.map(plate => (
               <div key={plate.plate_code ?? plate.plate_name} className="report-plate">
                 <div className="report-plate-head">
@@ -137,11 +135,10 @@ export function ReviewReport({ review, mode = 'full' }: Props) {
               </div>
             ))}
           </div>
-        </section>
+        </CollapsibleSection>
 
-        <section className="card">
-          <div className="card-header">涨停核心</div>
-          <div className="card-body report-list">
+        <CollapsibleSection title="涨停核心" summary={`${review.core_stocks.slice(0, 10).length} 只`}>
+          <div className="report-list">
             {review.core_stocks.slice(0, 10).map(stock => (
               <div key={stock.stock_code} className="report-stock-row">
                 <div>
@@ -155,7 +152,7 @@ export function ReviewReport({ review, mode = 'full' }: Props) {
               </div>
             ))}
           </div>
-        </section>
+        </CollapsibleSection>
       </div>
       )}
 
@@ -206,8 +203,8 @@ function PlateReviewCard({ plate }: { plate: SavedReviewPlateReview }) {
                   {stock.hot_rank != null && <span className="report-rank">人气#{stock.hot_rank}</span>}
                 </div>
                 <small>{compactParts([stock.stock_code, stock.is_today_limit_up ? '今日涨停' : null, stock.active_days != null ? `活跃${stock.active_days}天` : null])}</small>
-                {stock.reason && <div className="report-watch-reason">{stock.reason}</div>}
-                {stock.event_reason && <div className="report-event-reason">{stock.event_reason}</div>}
+                {stock.reason && <ExpandableText text={stock.reason} className="report-watch-reason" />}
+                {stock.event_reason && <ExpandableText text={stock.event_reason} className="report-event-reason" />}
               </div>
               <div className="report-stock-meta">
                 <span className="tag tag-yellow">{stock.highest_board ?? 1}板</span>
@@ -262,7 +259,7 @@ function WatchStockRow({ stock }: { stock: SavedReviewWatchStock }) {
           <span className="report-rank">{stock.category}</span>
         </div>
         <small>{meta}</small>
-        <div className="report-watch-reason">{stock.reason}</div>
+        <ExpandableText text={stock.reason} className="report-watch-reason" />
       </div>
       <div className="report-stock-meta">
         <span className={changeClass(stock.change_pct)}>{fmtPct(stock.change_pct)}</span>
