@@ -6,6 +6,8 @@
 - 概念板块：东方财富（优先），降级到同花顺名称列表
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import argparse

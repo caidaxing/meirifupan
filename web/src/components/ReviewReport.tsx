@@ -1,4 +1,4 @@
-import type { SavedReview } from '../types'
+import type { SavedReview, SavedReviewHotStock, SavedReviewWatchStock } from '../types'
 
 interface Props {
   review: SavedReview | null
@@ -9,6 +9,32 @@ function fmtMoney(value: number | null | undefined) {
   if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(1)}亿`
   if (Math.abs(value) >= 10000) return `${(value / 10000).toFixed(0)}万`
   return value.toFixed(0)
+}
+
+function fmtPct(value: number | null | undefined) {
+  if (value == null) return '-'
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
+}
+
+function changeClass(value: number | null | undefined) {
+  if (value == null || value === 0) return 'report-change'
+  return `report-change ${value > 0 ? 'text-red' : 'text-green'}`
+}
+
+function compactParts(parts: Array<string | number | null | undefined>) {
+  return parts.filter(part => part !== null && part !== undefined && `${part}`.trim() !== '').join(' · ')
+}
+
+function hotSummaryTags(summary: SavedReview['hot_stock_summary']) {
+  if (!summary) return []
+
+  return [
+    summary.total != null ? `全部 ${summary.total}` : null,
+    summary.non_limit_up_count != null ? `非涨停 ${summary.non_limit_up_count}` : null,
+    summary.limit_up_count != null ? `涨停 ${summary.limit_up_count}` : null,
+    summary.rising_count != null ? `上涨 ${summary.rising_count}` : null,
+    summary.falling_count != null ? `下跌 ${summary.falling_count}` : null,
+  ].filter((item): item is string => item !== null)
 }
 
 export function ReviewReport({ review }: Props) {
@@ -22,6 +48,12 @@ export function ReviewReport({ review }: Props) {
       </div>
     )
   }
+
+  const hotStocks = review.hot_stocks?.slice(0, 8) ?? []
+  const watchStocks = review.watch_stocks?.slice(0, 8) ?? []
+  const summaryText = review.hot_stock_summary?.text?.trim()
+  const summaryTags = hotSummaryTags(review.hot_stock_summary)
+  const showFocusSections = Boolean(summaryText || summaryTags.length > 0 || hotStocks.length > 0 || watchStocks.length > 0)
 
   return (
     <div className="report-page">
@@ -38,6 +70,38 @@ export function ReviewReport({ review }: Props) {
           <Metric label="板块数" value={`${review.limit_up_plate_count}`} />
         </div>
       </div>
+
+      {showFocusSections && (
+        <div className="report-grid report-focus-grid">
+          <section className="card">
+            <div className="card-header">人气核心</div>
+            <div className="card-body report-list">
+              {summaryText && <p className="report-focus-text">{summaryText}</p>}
+              {summaryTags.length > 0 && (
+                <div className="report-tags report-summary-tags">
+                  {summaryTags.map(tag => <span key={tag} className="tag tag-blue">{tag}</span>)}
+                </div>
+              )}
+              {hotStocks.length > 0 ? (
+                hotStocks.map(stock => <HotStockRow key={stock.stock_code} stock={stock} />)
+              ) : (
+                <div className="report-empty report-empty-compact">暂无人气股数据</div>
+              )}
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-header">观察名单</div>
+            <div className="card-body report-list">
+              {watchStocks.length > 0 ? (
+                watchStocks.map(stock => <WatchStockRow key={`${stock.stock_code}-${stock.category}`} stock={stock} />)
+              ) : (
+                <div className="report-empty report-empty-compact">暂无观察名单</div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       <div className="report-grid">
         <section className="card">
@@ -61,7 +125,7 @@ export function ReviewReport({ review }: Props) {
         </section>
 
         <section className="card">
-          <div className="card-header">核心个股</div>
+          <div className="card-header">涨停核心</div>
           <div className="card-body report-list">
             {review.core_stocks.slice(0, 10).map(stock => (
               <div key={stock.stock_code} className="report-stock-row">
@@ -83,6 +147,56 @@ export function ReviewReport({ review }: Props) {
         <TextList title="风险点" items={review.risk_flags} tone="green" />
         <TextList title="机会观察" items={review.opportunities} tone="red" />
         <TextList title="明日计划" items={review.next_plan} tone="blue" />
+      </div>
+    </div>
+  )
+}
+
+function HotStockRow({ stock }: { stock: SavedReviewHotStock }) {
+  const status = stock.is_limit_up ? '涨停' : '非涨停'
+  const meta = compactParts([
+    stock.stock_code,
+    stock.primary_plate,
+    stock.latest_price != null ? `价 ${stock.latest_price.toFixed(2)}` : null,
+    stock.signal,
+  ])
+
+  return (
+    <div className="report-stock-row report-focus-row">
+      <div className="report-stock-main">
+        <div className="report-stock-title">
+          <strong>{stock.stock_name}</strong>
+          <span className="report-rank">#{stock.rank_no ?? '-'}</span>
+        </div>
+        <small>{meta}</small>
+      </div>
+      <div className="report-stock-meta">
+        <span className={`tag ${stock.is_limit_up ? 'tag-red' : 'tag-blue'}`}>{status}</span>
+        <span className={changeClass(stock.change_pct)}>{fmtPct(stock.change_pct)}</span>
+      </div>
+    </div>
+  )
+}
+
+function WatchStockRow({ stock }: { stock: SavedReviewWatchStock }) {
+  const meta = compactParts([
+    stock.stock_code,
+    stock.primary_plate,
+    stock.rank_no != null ? `人气#${stock.rank_no}` : null,
+  ])
+
+  return (
+    <div className="report-stock-row report-focus-row">
+      <div className="report-stock-main">
+        <div className="report-stock-title">
+          <strong>{stock.stock_name}</strong>
+          <span className="report-rank">{stock.category}</span>
+        </div>
+        <small>{meta}</small>
+        <div className="report-watch-reason">{stock.reason}</div>
+      </div>
+      <div className="report-stock-meta">
+        <span className={changeClass(stock.change_pct)}>{fmtPct(stock.change_pct)}</span>
       </div>
     </div>
   )

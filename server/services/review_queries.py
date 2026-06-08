@@ -38,6 +38,16 @@ def _json_list(value: str | None) -> list[Any]:
     return parsed if isinstance(parsed, list) else []
 
 
+def _json_dict(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def get_indices(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
     """Get market indices for a given date."""
     rows = conn.execute(
@@ -450,7 +460,7 @@ def get_saved_review(conn: sqlite3.Connection, date: str) -> dict[str, Any] | No
         SELECT trade_date, limit_up_stock_count, limit_up_plate_count,
                first_board_count, multi_board_count, highest_board,
                strongest_plates, core_stocks, risk_flags, opportunities,
-               next_plan, markdown_path, summary, updated_at
+               next_plan, markdown_path, raw_payload, summary, updated_at
         FROM daily_reviews
         WHERE trade_date = ?
         """,
@@ -459,11 +469,15 @@ def get_saved_review(conn: sqlite3.Connection, date: str) -> dict[str, Any] | No
     if not row:
         return None
     review = _row_to_dict(row)
+    raw_payload = _json_dict(review.pop("raw_payload", None))
     review["strongest_plates"] = _json_list(review.pop("strongest_plates"))
     review["core_stocks"] = _json_list(review.pop("core_stocks"))
     review["risk_flags"] = _json_list(review.pop("risk_flags", None))
     review["opportunities"] = _json_list(review.pop("opportunities", None))
     review["next_plan"] = _json_list(review.pop("next_plan", None))
+    review["hot_stock_summary"] = raw_payload.get("hot_stock_summary") or {}
+    review["hot_stocks"] = raw_payload.get("hot_stocks") or []
+    review["watch_stocks"] = raw_payload.get("watch_stocks") or []
     return review
 
 

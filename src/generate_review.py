@@ -53,6 +53,17 @@ def _safe_int(value: Any, default: int = 0) -> int:
     return int(value) if value is not None else default
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    return float(value) if value is not None else default
+
+
+def _fmt_pct(value: float | int | None) -> str:
+    if value is None:
+        return "-"
+    prefix = "+" if value > 0 else ""
+    return f"{prefix}{value:.1f}%"
+
+
 def _brief_text(value: Any, max_len: int = 120) -> str:
     text = str(value or "").replace("\r", "\n").strip()
     if not text:
@@ -72,6 +83,139 @@ def get_default_date(db_path: str | Path = DEFAULT_DB_PATH) -> str:
         return row["trade_date"]
     finally:
         conn.close()
+
+
+def _hot_stock_signal(stock: dict[str, Any]) -> str:
+    if stock.get("is_limit_up"):
+        return "人气榜内涨停，情绪已经确认。"
+    change_pct = stock.get("change_pct")
+    if change_pct is None:
+        return "非涨停但人气靠前，观察成交是否延续。"
+    if change_pct >= 5:
+        return "非涨停但涨幅靠前，趋势资金活跃。"
+    if change_pct <= -5:
+        return "人气靠前但大跌，说明高关注方向分歧很大。"
+    if change_pct > 0:
+        return "非涨停但红盘，人气仍在。"
+    return "非涨停且回落，重点看承接，不适合只按涨停逻辑判断。"
+
+
+def build_hot_stocks(conn: sqlite3.Connection, trade_date: str, limit: int = 20) -> list[dict[str, Any]]:
+    hot_stocks = _rows(
+        conn,
+        """
+        select
+            h.rank_no, h.stock_code, h.stock_name, h.latest_price,
+            h.change_pct, h.change_amount,
+            case when e.stock_code is null then 0 else 1 end as is_limit_up,
+            e.up_limit_keep_times,
+            e.fengdan_money,
+            (
+                select p.plate_name
+                from limit_up_plate_map p
+                where p.trade_date = h.trade_date and p.stock_code = h.stock_code
+                order by coalesce(p.plate_score, 0) desc
+                limit 1
+            ) as primary_plate
+        from hot_stocks h
+        left join limit_up_events e
+            on h.trade_date = e.trade_date and h.stock_code = e.stock_code
+        where h.trade_date = ?
+        order by h.rank_no asc
+        limit ?
+        """,
+        (trade_date, limit),
+    )
+    for stock in hot_stocks:
+        stock["is_limit_up"] = bool(stock.get("is_limit_up"))
+        stock["signal"] = _hot_stock_signal(stock)
+    return hot_stocks
+
+
+def build_hot_stock_summary(hot_stocks: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(hot_stocks)
+    if not total:
+        return {
+            "total": 0,
+            "limit_up_count": 0,
+            "non_limit_up_count": 0,
+            "rising_count": 0,
+            "falling_count": 0,
+            "text": "这一天没有可用的人气榜数据，报告先按涨停、板块和资金数据判断。",
+        }
+
+    limit_up_count = sum(1 for stock in hot_stocks if stock.get("is_limit_up"))
+    non_limit_up_count = total - limit_up_count
+    rising = [stock for stock in hot_stocks if stock.get("change_pct") is not None and stock["change_pct"] > 0]
+    falling = [stock for stock in hot_stocks if stock.get("change_pct") is not None and stock["change_pct"] < 0]
+    top_names = "、".join(stock["stock_name"] for stock in hot_stocks[:3] if stock.get("stock_name"))
+    lead = f"人气前排是 {top_names}" if top_names else "人气前排暂不清晰"
+
+    if non_limit_up_count >= max(2, total * 0.6):
+        focus = "说明市场关注点不只在涨停股，复盘要把趋势股和大成交股一起看。"
+    elif limit_up_count:
+        focus = "涨停股也进入了人气前排，短线情绪有确认。"
+    else:
+        focus = "人气榜和涨停池重合度不高，单看涨停会漏掉不少核心。"
+
+    return {
+        "total": total,
+        "limit_up_count": limit_up_count,
+        "non_limit_up_count": non_limit_up_count,
+        "rising_count": len(rising),
+        "falling_count": len(falling),
+        "text": (
+            f"{lead}；前{total}名里非涨停 {non_limit_up_count} 只、涨停 {limit_up_count} 只，"
+            f"上涨 {len(rising)} 只、下跌 {len(falling)} 只。{focus}"
+        ),
+    }
+
+
+def build_watch_stocks(
+    hot_stocks: list[dict[str, Any]],
+    core_stocks: list[dict[str, Any]],
+    lhb_buy: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    watch: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(stock: dict[str, Any], category: str, reason: str) -> None:
+        stock_code = str(stock.get("stock_code") or "")
+        if not stock_code or stock_code in seen:
+            return
+        seen.add(stock_code)
+        watch.append(
+            {
+                "stock_code": stock_code,
+                "stock_name": stock.get("stock_name"),
+                "category": category,
+                "reason": reason,
+                "change_pct": stock.get("change_pct"),
+                "rank_no": stock.get("rank_no"),
+                "primary_plate": stock.get("primary_plate"),
+            }
+        )
+
+    hot_core_count = 0
+    for stock in hot_stocks:
+        if hot_core_count >= 6:
+            break
+        if not stock.get("is_limit_up"):
+            change_text = _fmt_pct(stock.get("change_pct"))
+            add(stock, "人气核心", f"人气排名第{stock.get('rank_no')}，非涨停，涨跌幅 {change_text}。")
+            hot_core_count += 1
+
+    for stock in core_stocks[:4]:
+        add(
+            stock,
+            "涨停核心",
+            f"{stock.get('up_limit_keep_times') or 1}板，封单 {_fmt_money(stock.get('fengdan_money'))}。",
+        )
+
+    for stock in lhb_buy[:3]:
+        add(stock, "资金核心", f"龙虎榜净买 {_fmt_money(stock.get('net_buy_amount'))}。")
+
+    return watch[:10]
 
 
 def build_review_payload(trade_date: str, db_path: str | Path = DEFAULT_DB_PATH) -> dict[str, Any]:
@@ -216,6 +360,9 @@ def build_review_payload(trade_date: str, db_path: str | Path = DEFAULT_DB_PATH)
             """,
             (trade_date,),
         )
+        hot_stocks = build_hot_stocks(conn, trade_date)
+        hot_stock_summary = build_hot_stock_summary(hot_stocks)
+        watch_stocks = build_watch_stocks(hot_stocks, core_stocks, lhb_buy)
 
         risk_flags = build_risk_flags(
             stats=stats,
@@ -225,7 +372,7 @@ def build_review_payload(trade_date: str, db_path: str | Path = DEFAULT_DB_PATH)
             limit_down_total=limit_down_total,
             broken_total=broken_total,
         )
-        opportunities = build_opportunities(strongest_plates, core_stocks, lhb_buy)
+        opportunities = build_opportunities(strongest_plates, core_stocks, lhb_buy, hot_stocks)
         next_plan = build_next_plan(stats, strongest_plates, risk_flags)
         summary = build_summary(
             trade_date=trade_date,
@@ -236,6 +383,8 @@ def build_review_payload(trade_date: str, db_path: str | Path = DEFAULT_DB_PATH)
             up_rate=up_rate,
             limit_down_total=limit_down_total,
             broken_total=broken_total,
+            hot_stocks=hot_stocks,
+            hot_stock_summary=hot_stock_summary,
         )
 
         return {
@@ -256,6 +405,9 @@ def build_review_payload(trade_date: str, db_path: str | Path = DEFAULT_DB_PATH)
             "indices": indices,
             "strongest_plates": strongest_plates,
             "core_stocks": core_stocks,
+            "hot_stock_summary": hot_stock_summary,
+            "hot_stocks": hot_stocks,
+            "watch_stocks": watch_stocks,
             "lhb_net_buy": lhb_buy,
             "risk_flags": risk_flags,
             "opportunities": opportunities,
@@ -276,6 +428,8 @@ def build_summary(
     up_rate: float | None,
     limit_down_total: int,
     broken_total: int,
+    hot_stocks: list[dict[str, Any]] | None = None,
+    hot_stock_summary: dict[str, Any] | None = None,
 ) -> str:
     total = _safe_int(stats.get("limit_up_stock_count"))
     prev_total = _safe_int(prev.get("limit_up_stock_count"))
@@ -283,11 +437,17 @@ def build_summary(
     strongest = strongest_plates[0]["plate_name"] if strongest_plates else "暂无明显主线"
     direction = "增加" if delta > 0 else "减少" if delta < 0 else "持平"
     breadth_text = f"，红盘率 {up_rate:.1f}%" if up_rate is not None else ""
+    hot_text = ""
+    if hot_stocks:
+        hot_names = "、".join(stock["stock_name"] for stock in hot_stocks[:3] if stock.get("stock_name"))
+        non_limit_up_count = _safe_int((hot_stock_summary or {}).get("non_limit_up_count"))
+        if hot_names:
+            hot_text = f" 人气前排看 {hot_names}，其中非涨停 {non_limit_up_count} 只，别只盯涨停池。"
     return (
         f"{trade_date} 涨停 {total} 只，较前一交易日{direction} {abs(delta)} 只，"
         f"最高板 {stats.get('highest_board') or 1} 板，主线集中在 {strongest}"
         f"{breadth_text}。跌停 {breadth.get('limit_down_count') or limit_down_total} 只，"
-        f"炸板 {broken_total} 只，明天重点看主线延续和高位分歧。"
+        f"炸板 {broken_total} 只，明天重点看主线延续和高位分歧。{hot_text}"
     )
 
 
@@ -322,8 +482,20 @@ def build_opportunities(
     strongest_plates: list[dict[str, Any]],
     core_stocks: list[dict[str, Any]],
     lhb_buy: list[dict[str, Any]],
+    hot_stocks: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     opportunities = []
+    hot_stocks = hot_stocks or []
+    hot_non_limit = [stock for stock in hot_stocks if not stock.get("is_limit_up")]
+    hot_rising = [stock for stock in hot_non_limit if _safe_float(stock.get("change_pct")) > 0]
+    if hot_non_limit:
+        names = "、".join(
+            f"{stock['stock_name']}({_fmt_pct(stock.get('change_pct'))})"
+            for stock in (hot_rising or hot_non_limit)[:3]
+            if stock.get("stock_name")
+        )
+        if names:
+            opportunities.append(f"非涨停人气股：{names}，这些票能反映趋势和成交热度。")
     for plate in strongest_plates[:3]:
         stocks = "、".join(plate.get("stocks") or [])
         suffix = f"，代表股：{stocks}" if stocks else ""
@@ -389,7 +561,29 @@ def render_markdown(review: dict[str, Any]) -> str:
     for plate in review["strongest_plates"]:
         stocks = "、".join(plate.get("stocks") or [])
         lines.append(f"- **{plate['plate_name']}**：{plate.get('limit_up_count', 0)} 只涨停，{plate.get('stage', '观察')}。{stocks}")
-    lines.extend(["", "## 核心个股", ""])
+
+    if review.get("hot_stocks"):
+        lines.extend(["", "## 人气核心", ""])
+        summary_text = (review.get("hot_stock_summary") or {}).get("text")
+        if summary_text:
+            lines.append(summary_text)
+            lines.append("")
+        for stock in review["hot_stocks"][:10]:
+            limit_text = "涨停" if stock.get("is_limit_up") else "非涨停"
+            lines.append(
+                f"- #{stock.get('rank_no')} {stock['stock_name']}（{stock['stock_code']}）："
+                f"{limit_text}，涨跌幅 {_fmt_pct(stock.get('change_pct'))}，{stock.get('signal') or ''}"
+            )
+
+    if review.get("watch_stocks"):
+        lines.extend(["", "## 观察名单", ""])
+        for stock in review["watch_stocks"][:10]:
+            lines.append(
+                f"- **{stock.get('stock_name')}**（{stock.get('stock_code')}）："
+                f"{stock.get('category')}，{stock.get('reason')}"
+            )
+
+    lines.extend(["", "## 涨停核心", ""])
     for stock in review["core_stocks"][:10]:
         lines.append(
             f"- {stock['stock_name']}（{stock['stock_code']}）：{stock.get('up_limit_keep_times') or 1}板，"

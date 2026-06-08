@@ -760,6 +760,16 @@ html, body {
   gap: 10px;
 }
 
+.report-focus-text {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.report-summary-tags {
+  margin-top: 0;
+}
+
 .report-plate,
 .report-stock-row {
   padding: 10px 0;
@@ -799,6 +809,25 @@ html, body {
   min-width: 0;
 }
 
+.report-stock-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.report-stock-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.report-rank {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .report-stock-row strong,
 .report-stock-row small {
   overflow: hidden;
@@ -810,6 +839,34 @@ html, body {
   flex-shrink: 0;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.report-focus-row {
+  align-items: flex-start;
+}
+
+.report-focus-row .report-stock-meta {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.report-change {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-watch-reason {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .report-bullets {
@@ -853,6 +910,11 @@ html, body {
   padding: 32px;
   text-align: center;
   color: var(--text-secondary);
+}
+
+.report-empty-compact {
+  padding: 18px 0;
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {

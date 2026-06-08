@@ -181,6 +181,36 @@ export interface SavedReviewStock {
   reason?: string | null
 }
 
+export interface SavedReviewHotStockSummary {
+  total?: number
+  non_limit_up_count?: number
+  rising_count?: number
+  falling_count?: number
+  limit_up_count?: number
+  text?: string
+}
+
+export interface SavedReviewHotStock {
+  rank_no?: number
+  stock_code: string
+  stock_name: string
+  latest_price?: number | null
+  change_pct?: number | null
+  is_limit_up?: boolean
+  signal?: string
+  primary_plate?: string | null
+}
+
+export interface SavedReviewWatchStock {
+  stock_code: string
+  stock_name: string
+  category: string
+  reason: string
+  change_pct?: number | null
+  rank_no?: number | null
+  primary_plate?: string | null
+}
+
 export interface SavedReview {
   trade_date: string
   limit_up_stock_count: number
@@ -190,6 +220,9 @@ export interface SavedReview {
   highest_board: number
   strongest_plates: SavedReviewPlate[]
   core_stocks: SavedReviewStock[]
+  hot_stock_summary?: SavedReviewHotStockSummary
+  hot_stocks?: SavedReviewHotStock[]
+  watch_stocks?: SavedReviewWatchStock[]
   risk_flags: string[]
   opportunities: string[]
   next_plan: string[]
