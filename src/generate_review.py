@@ -87,17 +87,17 @@ def get_default_date(db_path: str | Path = DEFAULT_DB_PATH) -> str:
 
 def _hot_stock_signal(stock: dict[str, Any]) -> str:
     if stock.get("is_limit_up"):
-        return "人气榜内涨停，情绪已经确认。"
+        return "人气和涨停重合，短线资金已经给出态度。"
     change_pct = stock.get("change_pct")
     if change_pct is None:
-        return "非涨停但人气靠前，观察成交是否延续。"
+        return "人气靠前但缺少涨跌幅，先看成交能不能延续。"
     if change_pct >= 5:
-        return "非涨停但涨幅靠前，趋势资金活跃。"
+        return "没封板也能大涨，是趋势资金在主动进攻。"
     if change_pct <= -5:
-        return "人气靠前但大跌，说明高关注方向分歧很大。"
+        return "人气还在但股价大跌，这是高位分歧的风向标。"
     if change_pct > 0:
-        return "非涨停但红盘，人气仍在。"
-    return "非涨停且回落，重点看承接，不适合只按涨停逻辑判断。"
+        return "没涨停但能红，说明还有资金愿意做承接。"
+    return "人气没散但股价回落，明天先看是否继续失血。"
 
 
 def build_hot_stocks(conn: sqlite3.Connection, trade_date: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -149,14 +149,26 @@ def build_hot_stock_summary(hot_stocks: list[dict[str, Any]]) -> dict[str, Any]:
     rising = [stock for stock in hot_stocks if stock.get("change_pct") is not None and stock["change_pct"] > 0]
     falling = [stock for stock in hot_stocks if stock.get("change_pct") is not None and stock["change_pct"] < 0]
     top_names = "、".join(stock["stock_name"] for stock in hot_stocks[:3] if stock.get("stock_name"))
-    lead = f"人气前排是 {top_names}" if top_names else "人气前排暂不清晰"
+    lead = f"今天人气榜先看 {top_names}" if top_names else "今天人气榜没有清晰前排"
+    top_non_limit = [stock for stock in hot_stocks[:5] if not stock.get("is_limit_up")]
+    heavy_falling = [stock for stock in hot_stocks if stock.get("change_pct") is not None and stock["change_pct"] <= -5]
+    strong_rising = [stock for stock in hot_stocks if stock.get("change_pct") is not None and stock["change_pct"] >= 5]
+    falling_names = "、".join(stock["stock_name"] for stock in heavy_falling[:3] if stock.get("stock_name"))
+    rising_names = "、".join(stock["stock_name"] for stock in strong_rising[:3] if stock.get("stock_name"))
 
-    if non_limit_up_count >= max(2, total * 0.6):
-        focus = "说明市场关注点不只在涨停股，复盘要把趋势股和大成交股一起看。"
+    if len(top_non_limit) >= 3 or non_limit_up_count > limit_up_count:
+        structure = "这不是涨停接力行情，资金主要挤在高人气趋势股里。"
     elif limit_up_count:
-        focus = "涨停股也进入了人气前排，短线情绪有确认。"
+        structure = "人气榜里有涨停股，短线情绪和市场关注点有重合。"
     else:
-        focus = "人气榜和涨停池重合度不高，单看涨停会漏掉不少核心。"
+        structure = "人气榜和涨停池重合度不高，单看涨停会漏掉真正的前排。"
+
+    if heavy_falling:
+        action = f"{falling_names} 这类高人气票跌得重，明天先看它们能不能止跌；止不住，题材热度容易继续降温。"
+    elif strong_rising:
+        action = f"{rising_names} 这种没封板也能走强的票更像主动资金，明天看回踩时有没有承接。"
+    else:
+        action = "明天重点看前排人气股是继续放量上攻，还是冲高回落。"
 
     return {
         "total": total,
@@ -165,8 +177,8 @@ def build_hot_stock_summary(hot_stocks: list[dict[str, Any]]) -> dict[str, Any]:
         "rising_count": len(rising),
         "falling_count": len(falling),
         "text": (
-            f"{lead}；前{total}名里非涨停 {non_limit_up_count} 只、涨停 {limit_up_count} 只，"
-            f"上涨 {len(rising)} 只、下跌 {len(falling)} 只。{focus}"
+            f"{lead}。前{total}名里非涨停 {non_limit_up_count} 只、涨停 {limit_up_count} 只，"
+            f"上涨 {len(rising)} 只、下跌 {len(falling)} 只。{structure}{action}"
         ),
     }
 
@@ -202,7 +214,7 @@ def build_watch_stocks(
             break
         if not stock.get("is_limit_up"):
             change_text = _fmt_pct(stock.get("change_pct"))
-            add(stock, "人气核心", f"人气排名第{stock.get('rank_no')}，非涨停，涨跌幅 {change_text}。")
+            add(stock, "人气核心", f"人气#{stock.get('rank_no')}，非涨停，{change_text}，它是今天趋势股强弱的风向标。")
             hot_core_count += 1
 
     for stock in core_stocks[:4]:
@@ -441,8 +453,12 @@ def build_summary(
     if hot_stocks:
         hot_names = "、".join(stock["stock_name"] for stock in hot_stocks[:3] if stock.get("stock_name"))
         non_limit_up_count = _safe_int((hot_stock_summary or {}).get("non_limit_up_count"))
+        limit_up_count = _safe_int((hot_stock_summary or {}).get("limit_up_count"))
         if hot_names:
-            hot_text = f" 人气前排看 {hot_names}，其中非涨停 {non_limit_up_count} 只，别只盯涨停池。"
+            if non_limit_up_count > limit_up_count:
+                hot_text = f" 人气前排是 {hot_names}，但基本没走涨停接力，更像趋势股分歧盘。"
+            else:
+                hot_text = f" 人气前排是 {hot_names}，短线情绪和人气方向有重合。"
     return (
         f"{trade_date} 涨停 {total} 只，较前一交易日{direction} {abs(delta)} 只，"
         f"最高板 {stats.get('highest_board') or 1} 板，主线集中在 {strongest}"
@@ -495,7 +511,7 @@ def build_opportunities(
             if stock.get("stock_name")
         )
         if names:
-            opportunities.append(f"非涨停人气股：{names}，这些票能反映趋势和成交热度。")
+            opportunities.append(f"非涨停人气股：{names}，明天先看承接，别把它们当普通杂毛处理。")
     for plate in strongest_plates[:3]:
         stocks = "、".join(plate.get("stocks") or [])
         suffix = f"，代表股：{stocks}" if stocks else ""
