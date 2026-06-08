@@ -30,6 +30,29 @@ def now_text() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def compact_result(value: Any, depth: int = 0) -> Any:
+    """Keep job details readable instead of storing full report payloads."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value if len(value) <= 240 else value[:240].rstrip() + "..."
+    if isinstance(value, list):
+        return {"count": len(value)}
+    if isinstance(value, dict):
+        compact: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"raw_payload", "raw", "traceback"}:
+                continue
+            if isinstance(item, list):
+                compact[key] = {"count": len(item)}
+            elif isinstance(item, dict):
+                compact[key] = compact_result(item, depth + 1) if depth < 1 else {"keys": len(item)}
+            else:
+                compact[key] = compact_result(item, depth + 1)
+        return compact
+    return str(value)
+
+
 def resolve_target_trade_day(
     api: QuantAPI | None,
     db_path: str,
@@ -70,7 +93,7 @@ def run_step(name: str, fn, summary: dict[str, Any]) -> None:
             "status": "success",
             "started_at": started,
             "finished_at": now_text(),
-            "result": result,
+            "result": compact_result(result),
         })
     except Exception as exc:
         summary["steps"].append({

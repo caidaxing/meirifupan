@@ -36,6 +36,7 @@ def get_latest_data_job(conn: sqlite3.Connection, job_name: str = "daily_update"
         return None
     result = _row_to_dict(row)
     result["details"] = _json_dict(result.get("details"))
+    result["details"] = _compact_job_details(result["details"])
     return result
 
 
@@ -65,6 +66,53 @@ def _json_dict(value: str | None) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _compact_job_details(details: dict[str, Any]) -> dict[str, Any]:
+    """Return concise job details for the UI."""
+    compact = {
+        "trade_date": details.get("trade_date"),
+        "is_today_trade_day": details.get("is_today_trade_day"),
+        "status": details.get("status"),
+        "message": details.get("message"),
+        "steps": [],
+    }
+    for step in details.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        compact_step = {
+            "name": step.get("name"),
+            "status": step.get("status"),
+            "started_at": step.get("started_at"),
+            "finished_at": step.get("finished_at"),
+            "message": step.get("message"),
+        }
+        result = step.get("result")
+        if isinstance(result, dict):
+            compact_step["result"] = _compact_step_result(result)
+        compact["steps"].append(compact_step)
+    return compact
+
+
+def _compact_step_result(result: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key, value in result.items():
+        if key in {"raw", "raw_payload", "traceback"}:
+            continue
+        if isinstance(value, list):
+            compact[key] = {"count": len(value)}
+        elif isinstance(value, dict):
+            if {"count"} <= set(value.keys()) or {"keys"} <= set(value.keys()):
+                compact[key] = value
+            elif len(value) <= 8 and not any(isinstance(v, (dict, list)) for v in value.values()):
+                compact[key] = value
+            else:
+                compact[key] = {"keys": len(value)}
+        elif isinstance(value, str):
+            compact[key] = value if len(value) <= 160 else value[:160].rstrip() + "..."
+        else:
+            compact[key] = value
+    return compact
 
 
 def get_indices(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
