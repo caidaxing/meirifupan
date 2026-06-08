@@ -433,77 +433,6 @@ html, body {
   min-height: 60vh;
 }
 
-.reading-guide-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.reading-route {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  color: var(--text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.reading-route strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.reading-guide {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  padding: 12px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-primary));
-}
-
-.reading-guide-title {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.reading-guide-steps {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.reading-guide-steps span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  flex: 0 0 auto;
-  padding: 5px 9px;
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.reading-guide-steps strong {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--bg-tertiary);
-  color: var(--color-blue);
-  font-size: 11px;
-}
-
 /* 涨停原因视图 */
 .plate-group-container {
   display: flex;
@@ -1311,34 +1240,6 @@ html, body {
     color: var(--text-primary);
     border-color: var(--color-blue);
     background: color-mix(in srgb, var(--color-blue) 16%, var(--bg-secondary));
-  }
-
-  .reading-guide {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    padding: 10px;
-  }
-
-  .reading-route {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 8px;
-    overflow: visible;
-    white-space: normal;
-  }
-
-  .reading-guide-steps {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 6px;
-    overflow: visible;
-    padding-bottom: 0;
-  }
-
-  .reading-guide-steps span {
-    width: 100%;
-    justify-content: flex-start;
-    white-space: normal;
   }
 
   .top-row {
