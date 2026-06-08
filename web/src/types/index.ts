@@ -211,6 +211,38 @@ export interface SavedReviewWatchStock {
   primary_plate?: string | null
 }
 
+export interface SavedReviewPlateActivity {
+  trade_date: string
+  limit_up_count: number
+  seal_amount?: number | null
+}
+
+export interface SavedReviewPlateCoreStock {
+  stock_code: string
+  stock_name: string
+  active_days?: number
+  is_today_limit_up?: boolean
+  highest_board?: number
+  hot_rank?: number | null
+  hot_change_pct?: number | null
+  total_seal_amount?: number | null
+  reason?: string
+  event_reason?: string | null
+}
+
+export interface SavedReviewPlateReview {
+  plate_code: string
+  plate_name: string
+  data_scope: string
+  window_days: number
+  active_days: number
+  today_limit_up_count: number
+  trend: string
+  review_text: string
+  activity: SavedReviewPlateActivity[]
+  core_stocks: SavedReviewPlateCoreStock[]
+}
+
 export interface SavedReview {
   trade_date: string
   limit_up_stock_count: number
@@ -219,6 +251,7 @@ export interface SavedReview {
   multi_board_count: number
   highest_board: number
   strongest_plates: SavedReviewPlate[]
+  plate_reviews?: SavedReviewPlateReview[]
   core_stocks: SavedReviewStock[]
   hot_stock_summary?: SavedReviewHotStockSummary
   hot_stocks?: SavedReviewHotStock[]

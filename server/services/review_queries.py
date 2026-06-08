@@ -475,6 +475,7 @@ def get_saved_review(conn: sqlite3.Connection, date: str) -> dict[str, Any] | No
     review["risk_flags"] = _json_list(review.pop("risk_flags", None))
     review["opportunities"] = _json_list(review.pop("opportunities", None))
     review["next_plan"] = _json_list(review.pop("next_plan", None))
+    review["plate_reviews"] = raw_payload.get("plate_reviews") or []
     review["hot_stock_summary"] = raw_payload.get("hot_stock_summary") or {}
     review["hot_stocks"] = raw_payload.get("hot_stocks") or []
     review["watch_stocks"] = raw_payload.get("watch_stocks") or []

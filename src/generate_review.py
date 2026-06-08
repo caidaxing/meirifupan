@@ -230,6 +230,197 @@ def build_watch_stocks(
     return watch[:10]
 
 
+def _recent_trade_dates(conn: sqlite3.Connection, trade_date: str, days: int = 5) -> list[str]:
+    rows = conn.execute(
+        """
+        select distinct trade_date
+        from limit_up_events
+        where trade_date <= ?
+        order by trade_date desc
+        limit ?
+        """,
+        (trade_date, days),
+    ).fetchall()
+    return [row["trade_date"] for row in reversed(rows)]
+
+
+def _plate_activity_map(
+    conn: sqlite3.Connection,
+    plate_code: str,
+    dates: list[str],
+) -> dict[str, dict[str, Any]]:
+    if not dates:
+        return {}
+    placeholders = ",".join(["?"] * len(dates))
+    rows = conn.execute(
+        f"""
+        select
+            p.trade_date,
+            count(distinct p.stock_code) as limit_up_count,
+            coalesce(sum(e.fengdan_money), 0) as seal_amount
+        from limit_up_plate_map p
+        left join limit_up_events e
+            on p.trade_date = e.trade_date and p.stock_code = e.stock_code
+        where p.plate_code = ? and p.trade_date in ({placeholders})
+        group by p.trade_date
+        """,
+        (plate_code, *dates),
+    ).fetchall()
+    data = {row["trade_date"]: _row_to_dict(row) for row in rows}
+    return {
+        date: {
+            "trade_date": date,
+            "limit_up_count": _safe_int((data.get(date) or {}).get("limit_up_count")),
+            "seal_amount": (data.get(date) or {}).get("seal_amount") or 0,
+        }
+        for date in dates
+    }
+
+
+def _build_plate_core_stocks(
+    conn: sqlite3.Connection,
+    plate_code: str,
+    trade_date: str,
+    dates: list[str],
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    if not dates:
+        return []
+    placeholders = ",".join(["?"] * len(dates))
+    rows = _rows(
+        conn,
+        f"""
+        select
+            p.stock_code,
+            coalesce(max(e.stock_name), max(s.stock_name)) as stock_name,
+            count(distinct p.trade_date) as active_days,
+            max(case when p.trade_date = ? then 1 else 0 end) as is_today_limit_up,
+            max(coalesce(e.up_limit_keep_times, 1)) as highest_board,
+            coalesce(sum(e.fengdan_money), 0) as total_seal_amount,
+            max(h.rank_no) as hot_rank,
+            max(h.change_pct) as hot_change_pct,
+            group_concat(distinct coalesce(nullif(p.stock_reason, ''), nullif(e.reason, ''))) as reasons
+        from limit_up_plate_map p
+        left join limit_up_events e
+            on p.trade_date = e.trade_date and p.stock_code = e.stock_code
+        left join stocks s
+            on p.stock_code = s.stock_code
+        left join hot_stocks h
+            on h.trade_date = ? and h.stock_code = p.stock_code
+        where p.plate_code = ? and p.trade_date in ({placeholders})
+        group by p.stock_code
+        order by active_days desc,
+                 is_today_limit_up desc,
+                 coalesce(hot_rank, 999999) asc,
+                 highest_board desc,
+                 total_seal_amount desc
+        limit ?
+        """,
+        (trade_date, trade_date, plate_code, *dates, limit),
+    )
+    result = []
+    for row in rows:
+        is_today = bool(row.get("is_today_limit_up"))
+        reason = "板块核心"
+        if row.get("hot_rank"):
+            reason += f"，人气#{row['hot_rank']}"
+        if row.get("active_days"):
+            reason += f"，近{len(dates)}日出现 {row['active_days']} 天"
+        if is_today:
+            reason += "，今天仍在涨停池"
+        result.append(
+            {
+                "stock_code": row.get("stock_code"),
+                "stock_name": row.get("stock_name"),
+                "active_days": _safe_int(row.get("active_days")),
+                "is_today_limit_up": is_today,
+                "highest_board": _safe_int(row.get("highest_board"), 1),
+                "hot_rank": row.get("hot_rank"),
+                "hot_change_pct": row.get("hot_change_pct"),
+                "total_seal_amount": row.get("total_seal_amount"),
+                "reason": reason + "。",
+                "event_reason": _brief_text(row.get("reasons"), 80),
+            }
+        )
+    return result
+
+
+def _plate_review_text(
+    plate_name: str,
+    dates: list[str],
+    activity: list[dict[str, Any]],
+    core_stocks: list[dict[str, Any]],
+) -> tuple[str, str]:
+    counts = [_safe_int(item.get("limit_up_count")) for item in activity]
+    today = counts[-1] if counts else 0
+    yesterday = counts[-2] if len(counts) >= 2 else 0
+    active_days = sum(1 for count in counts if count > 0)
+    max_count = max(counts) if counts else 0
+    if len(counts) >= 2 and today > yesterday:
+        trend = "升温"
+    elif len(counts) >= 2 and today < yesterday:
+        trend = "降温"
+    elif active_days >= max(3, len(dates) - 1):
+        trend = "持续活跃"
+    else:
+        trend = "观察"
+
+    leader_text = "、".join(stock["stock_name"] for stock in core_stocks[:3] if stock.get("stock_name")) or "-"
+    if trend == "升温":
+        action = "明天看前排能不能继续顶住，后排补涨才有意义。"
+    elif trend == "降温":
+        action = "明天先看核心股能不能止跌或弱转强，后排不要急着追。"
+    elif trend == "持续活跃":
+        action = "明天重点看核心股是否继续扩散，断板后的承接也很关键。"
+    else:
+        action = "明天只先当观察方向，看有没有新的前排确认。"
+
+    text = (
+        f"近{len(dates)}个交易日活跃 {active_days} 天，涨停家数路径 {counts}，"
+        f"今天 {today} 只，较前一日 {'+' if today - yesterday > 0 else ''}{today - yesterday}。"
+        f"核心看 {leader_text}。{action}"
+    )
+    return trend, text
+
+
+def build_plate_reviews(
+    conn: sqlite3.Connection,
+    trade_date: str,
+    strongest_plates: list[dict[str, Any]],
+    window: int = 5,
+) -> list[dict[str, Any]]:
+    dates = _recent_trade_dates(conn, trade_date, window)
+    reviews: list[dict[str, Any]] = []
+    seen_core_sets: list[set[str]] = []
+    for plate in strongest_plates:
+        plate_code = str(plate.get("plate_code") or "")
+        if not plate_code:
+            continue
+        activity_map = _plate_activity_map(conn, plate_code, dates)
+        activity = [activity_map[date] for date in dates]
+        core_stocks = _build_plate_core_stocks(conn, plate_code, trade_date, dates)
+        core_set = {str(stock.get("stock_code") or "") for stock in core_stocks[:4] if stock.get("stock_code")}
+        if core_set and any(len(core_set & existing) >= min(3, len(core_set), len(existing)) for existing in seen_core_sets):
+            continue
+        seen_core_sets.append(core_set)
+        trend, text = _plate_review_text(plate.get("plate_name") or plate_code, dates, activity, core_stocks)
+        reviews.append(
+            {
+                "plate_code": plate_code,
+                "plate_name": plate.get("plate_name"),
+                "data_scope": "limit_up_activity",
+                "window_days": len(dates),
+                "active_days": sum(1 for item in activity if _safe_int(item.get("limit_up_count")) > 0),
+                "today_limit_up_count": activity[-1]["limit_up_count"] if activity else 0,
+                "trend": trend,
+                "review_text": text,
+                "activity": activity,
+                "core_stocks": core_stocks,
+            }
+        )
+    return reviews
+
+
 def build_review_payload(trade_date: str, db_path: str | Path = DEFAULT_DB_PATH) -> dict[str, Any]:
     conn = _connect(db_path)
     try:
@@ -375,6 +566,7 @@ def build_review_payload(trade_date: str, db_path: str | Path = DEFAULT_DB_PATH)
         hot_stocks = build_hot_stocks(conn, trade_date)
         hot_stock_summary = build_hot_stock_summary(hot_stocks)
         watch_stocks = build_watch_stocks(hot_stocks, core_stocks, lhb_buy)
+        plate_reviews = build_plate_reviews(conn, trade_date, strongest_plates)
 
         risk_flags = build_risk_flags(
             stats=stats,
@@ -416,6 +608,7 @@ def build_review_payload(trade_date: str, db_path: str | Path = DEFAULT_DB_PATH)
             },
             "indices": indices,
             "strongest_plates": strongest_plates,
+            "plate_reviews": plate_reviews,
             "core_stocks": core_stocks,
             "hot_stock_summary": hot_stock_summary,
             "hot_stocks": hot_stocks,
@@ -577,6 +770,18 @@ def render_markdown(review: dict[str, Any]) -> str:
     for plate in review["strongest_plates"]:
         stocks = "、".join(plate.get("stocks") or [])
         lines.append(f"- **{plate['plate_name']}**：{plate.get('limit_up_count', 0)} 只涨停，{plate.get('stage', '观察')}。{stocks}")
+
+    if review.get("plate_reviews"):
+        lines.extend(["", "## 核心板块复盘", ""])
+        for plate in review["plate_reviews"][:6]:
+            lines.append(f"- **{plate.get('plate_name')}**（{plate.get('trend')}）：{plate.get('review_text')}")
+            stocks = "、".join(
+                f"{stock.get('stock_name')}({stock.get('reason')})"
+                for stock in (plate.get("core_stocks") or [])[:3]
+                if stock.get("stock_name")
+            )
+            if stocks:
+                lines.append(f"  - 核心股：{stocks}")
 
     if review.get("hot_stocks"):
         lines.extend(["", "## 人气核心", ""])

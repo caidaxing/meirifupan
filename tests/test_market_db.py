@@ -675,6 +675,116 @@ class MarketDbTests(unittest.TestCase):
         self.assertIn("非涨停", markdown)
         self.assertIn("中际旭创", review["summary"])
 
+    def test_generate_daily_review_adds_plate_reviews_with_core_stocks(self):
+        from db import MarketDB
+        from generate_review import generate_daily_review
+        from server.services.review_queries import get_saved_review
+
+        def day(trade_date: str, stocks: list[dict]) -> dict:
+            return {
+                "date": trade_date,
+                "uplimit_reason": [
+                    {
+                        "plate_code": "801001",
+                        "plate_name": "芯片",
+                        "plate_score": 100,
+                        "stocks": stocks,
+                    }
+                ],
+                "uplimit_hot": [["芯片", "801001", 100]],
+                "plate_rank": [],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            out_dir = Path(tmp) / "reports"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_uplimit_day(day("2026-06-03", [
+                {
+                    "stock_code": "002918",
+                    "stock_name": "蒙娜丽莎",
+                    "up_limit_desc": "首板",
+                    "up_limit_keep_times": 1,
+                    "up_limit_time": "09:45",
+                    "fengdan_money": 20_000_000,
+                    "reason": "芯片低位启动",
+                }
+            ]), raw_source="unit-test")
+            db.import_uplimit_day(day("2026-06-04", [
+                {
+                    "stock_code": "002918",
+                    "stock_name": "蒙娜丽莎",
+                    "up_limit_desc": "2连板",
+                    "up_limit_keep_times": 2,
+                    "up_limit_time": "09:38",
+                    "fengdan_money": 55_000_000,
+                    "reason": "芯片持续发酵",
+                },
+                {
+                    "stock_code": "300001",
+                    "stock_name": "特锐德",
+                    "up_limit_desc": "首板",
+                    "up_limit_keep_times": 1,
+                    "up_limit_time": "10:10",
+                    "fengdan_money": 18_000_000,
+                    "reason": "芯片补涨",
+                },
+            ]), raw_source="unit-test")
+            db.import_uplimit_day(day("2026-06-05", [
+                {
+                    "stock_code": "002918",
+                    "stock_name": "蒙娜丽莎",
+                    "up_limit_desc": "3连板",
+                    "up_limit_keep_times": 3,
+                    "up_limit_time": "09:31",
+                    "fengdan_money": 90_000_000,
+                    "reason": "芯片景气",
+                },
+                {
+                    "stock_code": "600001",
+                    "stock_name": "趋势科技",
+                    "up_limit_desc": "首板",
+                    "up_limit_keep_times": 1,
+                    "up_limit_time": "10:05",
+                    "fengdan_money": 30_000_000,
+                    "reason": "芯片趋势扩散",
+                },
+            ]), raw_source="unit-test")
+            db.import_hot_stocks("2026-06-05", [
+                {
+                    "rank_no": 2,
+                    "stock_code": "002918",
+                    "stock_name": "蒙娜丽莎",
+                    "latest_price": 14.0,
+                    "change_pct": 10.0,
+                    "change_amount": 1.3,
+                }
+            ])
+            db.close()
+
+            review = generate_daily_review("2026-06-05", db_path=db_path, output_dir=out_dir)
+            markdown = Path(review["markdown_path"]).read_text(encoding="utf-8")
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            saved = get_saved_review(conn, "2026-06-05")
+            conn.close()
+
+        self.assertTrue(review["plate_reviews"])
+        plate = review["plate_reviews"][0]
+        self.assertEqual("芯片", plate["plate_name"])
+        self.assertEqual("limit_up_activity", plate["data_scope"])
+        self.assertGreaterEqual(plate["active_days"], 3)
+        self.assertIn("近", plate["review_text"])
+        self.assertIn("今天", plate["review_text"])
+        self.assertTrue(plate["core_stocks"])
+        self.assertEqual("蒙娜丽莎", plate["core_stocks"][0]["stock_name"])
+        self.assertGreaterEqual(plate["core_stocks"][0]["active_days"], 3)
+        self.assertIn("板块核心", plate["core_stocks"][0]["reason"])
+        self.assertIsNotNone(saved)
+        self.assertEqual("芯片", saved["plate_reviews"][0]["plate_name"])
+        self.assertIn("核心板块复盘", markdown)
+
     def test_derive_review_data_populates_local_summary_tables(self):
         from db import MarketDB
         from derive_review_data import derive_review_data

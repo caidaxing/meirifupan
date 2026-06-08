@@ -1,4 +1,4 @@
-import type { SavedReview, SavedReviewHotStock, SavedReviewWatchStock } from '../types'
+import type { SavedReview, SavedReviewHotStock, SavedReviewPlateReview, SavedReviewWatchStock } from '../types'
 
 interface Props {
   review: SavedReview | null
@@ -51,6 +51,7 @@ export function ReviewReport({ review }: Props) {
 
   const hotStocks = review.hot_stocks?.slice(0, 8) ?? []
   const watchStocks = review.watch_stocks?.slice(0, 8) ?? []
+  const plateReviews = review.plate_reviews?.slice(0, 6) ?? []
   const summaryText = review.hot_stock_summary?.text?.trim()
   const summaryTags = hotSummaryTags(review.hot_stock_summary)
   const showFocusSections = Boolean(summaryText || summaryTags.length > 0 || hotStocks.length > 0 || watchStocks.length > 0)
@@ -103,9 +104,18 @@ export function ReviewReport({ review }: Props) {
         </div>
       )}
 
+      {plateReviews.length > 0 && (
+        <section className="card">
+          <div className="card-header">核心板块复盘</div>
+          <div className="card-body report-plate-review-list">
+            {plateReviews.map(plate => <PlateReviewCard key={plate.plate_code} plate={plate} />)}
+          </div>
+        </section>
+      )}
+
       <div className="report-grid">
         <section className="card">
-          <div className="card-header">主线板块</div>
+          <div className="card-header">{plateReviews.length > 0 ? '主线板块速览' : '主线板块'}</div>
           <div className="card-body report-list">
             {review.strongest_plates.map(plate => (
               <div key={plate.plate_code ?? plate.plate_name} className="report-plate">
@@ -148,6 +158,47 @@ export function ReviewReport({ review }: Props) {
         <TextList title="机会观察" items={review.opportunities} tone="red" />
         <TextList title="明日计划" items={review.next_plan} tone="blue" />
       </div>
+    </div>
+  )
+}
+
+function PlateReviewCard({ plate }: { plate: SavedReviewPlateReview }) {
+  const trendClass = plate.trend === '升温' || plate.trend === '持续活跃' ? 'tag-red' : plate.trend === '降温' ? 'tag-green' : 'tag-blue'
+  const path = plate.activity?.map(item => item.limit_up_count ?? 0).join(' / ') || '-'
+
+  return (
+    <div className="report-plate-review">
+      <div className="report-plate-head">
+        <strong>{plate.plate_name}</strong>
+        <span className={`tag ${trendClass}`}>{plate.trend}</span>
+      </div>
+      <p className="report-focus-text">{plate.review_text}</p>
+      <div className="report-tags">
+        <span className="tag tag-blue">涨停活跃度</span>
+        <span className="tag tag-blue">近{plate.window_days}日活跃 {plate.active_days}天</span>
+        <span className="tag">今日 {plate.today_limit_up_count}只</span>
+        <span className="tag">路径 {path}</span>
+      </div>
+      {plate.core_stocks.length > 0 && (
+        <div className="report-plate-core">
+          {plate.core_stocks.slice(0, 4).map(stock => (
+            <div key={stock.stock_code} className="report-stock-row report-focus-row">
+              <div className="report-stock-main">
+                <div className="report-stock-title">
+                  <strong>{stock.stock_name}</strong>
+                  {stock.hot_rank != null && <span className="report-rank">人气#{stock.hot_rank}</span>}
+                </div>
+                <small>{compactParts([stock.stock_code, stock.is_today_limit_up ? '今日涨停' : null, stock.active_days != null ? `活跃${stock.active_days}天` : null])}</small>
+                {stock.reason && <div className="report-watch-reason">{stock.reason}</div>}
+              </div>
+              <div className="report-stock-meta">
+                <span className="tag tag-yellow">{stock.highest_board ?? 1}板</span>
+                <span>{fmtMoney(stock.total_seal_amount)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

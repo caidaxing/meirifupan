@@ -770,6 +770,25 @@ html, body {
   margin-top: 0;
 }
 
+.report-plate-review-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.report-plate-review {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+}
+
+.report-plate-core {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
 .report-plate,
 .report-stock-row {
   padding: 10px 0;
@@ -933,6 +952,7 @@ html, body {
   }
   .report-summary,
   .report-grid,
+  .report-plate-review-list,
   .report-three {
     grid-template-columns: 1fr;
   }
