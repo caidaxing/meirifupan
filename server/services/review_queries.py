@@ -20,6 +20,25 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def get_latest_data_job(conn: sqlite3.Connection, job_name: str = "daily_update") -> dict[str, Any] | None:
+    """Return the latest recorded data job."""
+    row = conn.execute(
+        """
+        select id, job_name, trade_date, status, message, details, started_at, finished_at, created_at
+        from data_jobs
+        where job_name = ?
+        order by id desc
+        limit 1
+        """,
+        (job_name,),
+    ).fetchone()
+    if not row:
+        return None
+    result = _row_to_dict(row)
+    result["details"] = _json_dict(result.get("details"))
+    return result
+
+
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return dict(row)
 

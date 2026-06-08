@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useReview, useDates, useInsights, useHot, useHotDates } from './hooks/useReview'
+import { useReview, useDates, useInsights, useHot, useHotDates, useLatestJob } from './hooks/useReview'
 import { DateSelector } from './components/DateSelector'
 import { TabBar, type TabKey } from './components/TabBar'
 import { DataOverview } from './components/DataOverview'
@@ -11,6 +11,7 @@ import './styles/globals.css'
 export default function App() {
   const reviewDates = useDates()
   const hotDates = useHotDates()
+  const latestJob = useLatestJob()
   const [date, setDate] = useState('')
   const [tab, setTab] = useState<TabKey>('limit-up-review')
 
@@ -67,7 +68,7 @@ export default function App() {
         {tab === 'profit-effect' && data && (
           <ProfitEffectReview data={data} insights={insights} loading={insightLoading} />
         )}
-        {tab === 'data-overview' && data && <DataOverview data={data} trend={trend} />}
+        {tab === 'data-overview' && data && <DataOverview data={data} trend={trend} latestJob={latestJob} />}
       </div>
     </div>
   )

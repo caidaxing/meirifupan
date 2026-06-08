@@ -1,4 +1,4 @@
-import type { ReviewData, EmotionTrendItem, MarketInsights, HotData } from '../types'
+import type { ReviewData, EmotionTrendItem, MarketInsights, HotData, DataJob } from '../types'
 
 const BASE = '/api'
 
@@ -51,4 +51,15 @@ export async function fetchHotDates(signal?: AbortSignal): Promise<string[]> {
   }
   const json = await res.json()
   return json.dates
+}
+
+export async function fetchLatestJob(signal?: AbortSignal): Promise<DataJob | null> {
+  const res = await fetch(`${BASE}/jobs/latest?job_name=daily_update`, { signal })
+  if (res.status === 404) {
+    return null
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to fetch latest job: ${res.statusText}`)
+  }
+  return res.json()
 }

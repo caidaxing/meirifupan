@@ -372,6 +372,9 @@ class MarketDB:
                 trade_date text,
                 status text not null,
                 message text,
+                details text,
+                started_at text,
+                finished_at text,
                 created_at text not null default current_timestamp
             );
 
@@ -440,6 +443,7 @@ class MarketDB:
             """
         )
         self._ensure_daily_review_columns()
+        self._ensure_data_job_columns()
         self.conn.commit()
 
     def _ensure_daily_review_columns(self) -> None:
@@ -458,6 +462,21 @@ class MarketDB:
         for name, column_type in columns.items():
             if name not in existing:
                 self.conn.execute(f"alter table daily_reviews add column {name} {column_type}")
+
+    def _ensure_data_job_columns(self) -> None:
+        """Add job tracking columns when upgrading an existing database."""
+        existing = {
+            row["name"]
+            for row in self.conn.execute("pragma table_info(data_jobs)").fetchall()
+        }
+        columns = {
+            "details": "text",
+            "started_at": "text",
+            "finished_at": "text",
+        }
+        for name, column_type in columns.items():
+            if name not in existing:
+                self.conn.execute(f"alter table data_jobs add column {name} {column_type}")
 
     def import_uplimit_day(self, day_data: dict[str, Any], raw_source: str = "json") -> None:
         trade_date = day_data["date"]
@@ -1360,14 +1379,17 @@ class MarketDB:
         trade_date: str | None,
         status: str,
         message: str | None = None,
+        details: dict[str, Any] | list[Any] | None = None,
+        started_at: str | None = None,
+        finished_at: str | None = None,
     ) -> int:
         """记录一次采集或派生任务。"""
         self.conn.execute(
             """
-            insert into data_jobs(job_name, trade_date, status, message)
-            values(?, ?, ?, ?)
+            insert into data_jobs(job_name, trade_date, status, message, details, started_at, finished_at)
+            values(?, ?, ?, ?, ?, ?, ?)
             """,
-            (job_name, trade_date, status, message),
+            (job_name, trade_date, status, message, _json_text(details) if details is not None else None, started_at, finished_at),
         )
         self.conn.commit()
         return 1

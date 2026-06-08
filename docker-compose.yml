@@ -10,4 +10,19 @@ services:
       - ./config:/app/config
     environment:
       - DB_PATH=/app/data/market_review.db
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+
+  scheduler:
+    build: .
+    command: python src/daily_scheduler.py --db /app/data/market_review.db
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./reports:/app/reports
+    environment:
+      - DB_PATH=/app/data/market_review.db
+      - TZ=Asia/Shanghai
+      - DAILY_UPDATE_AT=17:30
+      - DAILY_KLINE_LIMIT=30
     restart: unless-stopped

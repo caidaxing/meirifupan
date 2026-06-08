@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
-import { fetchReview, fetchEmotionTrend, fetchDates, fetchInsights, fetchHot, fetchHotDates } from '../api/client'
-import type { ReviewData, EmotionTrendItem, MarketInsights, HotData } from '../types'
+import {
+  fetchReview,
+  fetchEmotionTrend,
+  fetchDates,
+  fetchInsights,
+  fetchHot,
+  fetchHotDates,
+  fetchLatestJob,
+} from '../api/client'
+import type { ReviewData, EmotionTrendItem, MarketInsights, HotData, DataJob } from '../types'
 
 export function useReview(date: string) {
   const [data, setData] = useState<ReviewData | null>(null)
@@ -108,4 +116,16 @@ export function useHotDates() {
     return () => ctrl.abort()
   }, [])
   return dates
+}
+
+export function useLatestJob() {
+  const [job, setJob] = useState<DataJob | null>(null)
+  useEffect(() => {
+    const ctrl = new AbortController()
+    fetchLatestJob(ctrl.signal).then(setJob).catch(e => {
+      if (e.name !== 'AbortError') console.error(e)
+    })
+    return () => ctrl.abort()
+  }, [])
+  return job
 }

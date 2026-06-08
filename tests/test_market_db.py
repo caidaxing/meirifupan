@@ -2,7 +2,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 
@@ -53,6 +53,76 @@ class MarketDbTests(unittest.TestCase):
             db.close()
 
         self.assertTrue(expected_tables.issubset(tables))
+
+    def test_data_jobs_upgrade_and_latest_query(self):
+        from db import MarketDB
+        from server.services.review_queries import get_latest_data_job
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.log_data_job(
+                "daily_update",
+                "2026-06-05",
+                "success",
+                "ok",
+                details={"steps": [{"name": "生成复盘", "status": "success"}]},
+                started_at="2026-06-05T17:30:00",
+                finished_at="2026-06-05T17:40:00",
+            )
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                job = get_latest_data_job(conn, "daily_update")
+            finally:
+                conn.close()
+
+        self.assertIsNotNone(job)
+        self.assertEqual("success", job["status"])
+        self.assertEqual("2026-06-05", job["trade_date"])
+        self.assertEqual("生成复盘", job["details"]["steps"][0]["name"])
+
+    def test_scheduler_next_run_time_rolls_to_tomorrow_after_run_time(self):
+        from daily_scheduler import next_run_time
+
+        before = datetime(2026, 6, 8, 17, 0)
+        after = datetime(2026, 6, 8, 18, 0)
+
+        self.assertEqual(datetime(2026, 6, 8, 17, 30), next_run_time("17:30", before))
+        self.assertEqual(datetime(2026, 6, 9, 17, 30), next_run_time("17:30", after))
+
+    def test_daily_update_records_missing_token_failure(self):
+        import daily_update
+        from server.services.review_queries import get_latest_data_job
+
+        original_load_token = daily_update.load_token
+        daily_update.load_token = lambda: None
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                db_path = Path(tmp) / "market.db"
+                summary = daily_update.run_daily_update(
+                    trade_date="2026-06-05",
+                    db_path=str(db_path),
+                    kline_limit=0,
+                    force=True,
+                )
+
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                try:
+                    job = get_latest_data_job(conn, "daily_update")
+                finally:
+                    conn.close()
+        finally:
+            daily_update.load_token = original_load_token
+
+        self.assertEqual("failed", summary["status"])
+        self.assertIsNotNone(job)
+        self.assertEqual("failed", job["status"])
+        self.assertIn("未找到 token", job["message"])
 
     def test_import_plate_index_daily_keeps_real_board_ohlc(self):
         from db import MarketDB

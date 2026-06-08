@@ -18,6 +18,7 @@ from server.services.review_queries import (
     get_hot_stocks_rank,
     get_hot_available_dates,
     get_indices,
+    get_latest_data_job,
     get_limit_up_stats,
     get_market_environment,
     get_connection,
@@ -169,5 +170,18 @@ def get_hot_dates():
     try:
         dates = get_hot_available_dates(conn)
         return {"dates": dates}
+    finally:
+        conn.close()
+
+
+@router.get("/api/jobs/latest")
+def get_latest_job(job_name: str = Query("daily_update", description="Job name")):
+    """Return latest data update job status."""
+    conn = get_connection()
+    try:
+        job = get_latest_data_job(conn, job_name)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"No job records for {job_name}.")
+        return job
     finally:
         conn.close()

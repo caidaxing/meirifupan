@@ -297,6 +297,31 @@ export interface ReviewData {
   emotion: EmotionData
 }
 
+export interface DataJobStep {
+  name: string
+  status: string
+  started_at?: string
+  finished_at?: string
+  message?: string
+  result?: Record<string, unknown>
+}
+
+export interface DataJob {
+  id: number
+  job_name: string
+  trade_date: string | null
+  status: string
+  message: string | null
+  details: {
+    steps?: DataJobStep[]
+    status?: string
+    message?: string
+  }
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+}
+
 // --- Market Insights ---
 
 export interface SealQuality {

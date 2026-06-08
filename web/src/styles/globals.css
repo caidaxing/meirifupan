@@ -101,6 +101,106 @@ html, body {
   gap: 16px;
 }
 
+.job-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--text-secondary);
+  border-radius: 8px;
+}
+
+.job-status-success {
+  border-left-color: var(--color-green);
+}
+
+.job-status-partial,
+.job-status-skipped {
+  border-left-color: var(--color-yellow);
+}
+
+.job-status-failed {
+  border-left-color: var(--color-red);
+}
+
+.job-status-running {
+  border-left-color: var(--color-blue);
+}
+
+.job-status-main {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.job-status-main div,
+.job-status-empty div {
+  min-width: 0;
+}
+
+.job-status span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.job-status strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-status p,
+.job-status small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.job-status .collapsible-section {
+  border-radius: 6px;
+}
+
+.job-status .collapsible-header {
+  min-height: 34px;
+  padding: 8px 10px;
+}
+
+.job-status .collapsible-body {
+  padding: 10px;
+}
+
+.job-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-step {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.job-step span {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.job-step small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .collapsible-section {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -1244,6 +1344,19 @@ html, body {
 
   .top-row {
     grid-template-columns: 1fr;
+  }
+
+  .job-status-main {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .job-step {
+    grid-template-columns: 1fr;
+  }
+
+  .job-step small {
+    white-space: normal;
+    word-break: break-word;
   }
 
   .market-env-strip {
