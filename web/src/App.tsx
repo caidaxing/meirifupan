@@ -2,23 +2,19 @@ import { useState, useEffect, useMemo } from 'react'
 import { useReview, useDates, useInsights, useHot, useHotDates } from './hooks/useReview'
 import { DateSelector } from './components/DateSelector'
 import { TabBar, type TabKey } from './components/TabBar'
-import { PlateGroupView } from './components/PlateGroupView'
-import { BoardTiers } from './components/BoardTiers'
-import { EmotionDetail } from './components/EmotionDetail'
-import { InsightView } from './components/InsightView'
-import { HotView } from './components/HotView'
-import { Overview } from './components/Overview'
-import { ReviewReport } from './components/ReviewReport'
+import { DataOverview } from './components/DataOverview'
+import { EmotionReview } from './components/EmotionReview'
+import { LimitUpReview } from './components/LimitUpReview'
+import { ProfitEffectReview } from './components/ProfitEffectReview'
 import './styles/globals.css'
 
 export default function App() {
   const reviewDates = useDates()
   const hotDates = useHotDates()
   const [date, setDate] = useState('')
-  const [tab, setTab] = useState<TabKey>('report')
+  const [tab, setTab] = useState<TabKey>('limit-up-review')
 
-  const isHotTab = tab === 'hot'
-  const activeDates = isHotTab ? hotDates : reviewDates
+  const activeDates = reviewDates
 
   // Compute effective date: if current date isn't in activeDates, pick the first available
   const effectiveDate = useMemo(() => {
@@ -34,9 +30,10 @@ export default function App() {
     }
   }, [effectiveDate, date])
 
-  const { data, trend, loading, error } = useReview(isHotTab ? '' : effectiveDate)
-  const { data: insights, loading: insightLoading } = useInsights(isHotTab ? '' : effectiveDate)
-  const { data: hotData, loading: hotLoading, error: hotError } = useHot(isHotTab ? effectiveDate : '')
+  const { data, trend, loading, error } = useReview(effectiveDate)
+  const { data: insights, loading: insightLoading } = useInsights(effectiveDate)
+  const hotDate = hotDates.includes(effectiveDate) ? effectiveDate : hotDates[0] ?? ''
+  const { data: hotData, loading: hotLoading, error: hotError } = useHot(tab === 'emotion-review' ? hotDate : '')
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -52,8 +49,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [date, activeDates])
 
-  if (!isHotTab && loading) return <div className="loading">加载中...</div>
-  if (!isHotTab && error) return <div className="error">{error}</div>
+  if (loading) return <div className="loading">加载中...</div>
+  if (error) return <div className="error">{error}</div>
 
   return (
     <div className="container">
@@ -63,13 +60,14 @@ export default function App() {
       </div>
       <TabBar active={tab} onChange={setTab} />
       <div className="tab-content">
-        {tab === 'report' && data && <ReviewReport review={data.saved_review} />}
-        {tab === 'plate' && data && <PlateGroupView stocks={data.all_stocks} />}
-        {tab === 'tier' && data && <BoardTiers tiers={data.board_tiers} fullView />}
-        {tab === 'emotion' && data && <EmotionDetail emotion={data.emotion} trend={trend} />}
-        {tab === 'insight' && (insightLoading ? <div className="loading">加载洞察数据...</div> : insights ? <InsightView data={insights} /> : <div className="error">无数据</div>)}
-        {tab === 'hot' && (hotLoading ? <div className="loading">加载热门数据...</div> : hotData ? <HotView data={hotData} /> : <div className="error">{hotError ?? '无数据'}</div>)}
-        {tab === 'overview' && data && <Overview data={data} trend={trend} />}
+        {tab === 'limit-up-review' && data && <LimitUpReview data={data} />}
+        {tab === 'emotion-review' && data && (
+          <EmotionReview data={data} trend={trend} hotData={hotData} hotLoading={hotLoading} hotError={hotError} />
+        )}
+        {tab === 'profit-effect' && data && (
+          <ProfitEffectReview data={data} insights={insights} loading={insightLoading} />
+        )}
+        {tab === 'data-overview' && data && <DataOverview data={data} trend={trend} />}
       </div>
     </div>
   )

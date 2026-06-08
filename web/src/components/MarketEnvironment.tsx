@@ -2,6 +2,7 @@ import type { MarketEnvironment as MarketEnvironmentType } from '../types'
 
 interface Props {
   data: MarketEnvironmentType
+  compact?: boolean
 }
 
 function fmtMoney(value: number | null | undefined) {
@@ -17,7 +18,7 @@ function fmtPct(value: number | null | undefined) {
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
 }
 
-export function MarketEnvironment({ data }: Props) {
+export function MarketEnvironment({ data, compact = false }: Props) {
   const {
     breadth,
     limit_down_total,
@@ -42,6 +43,7 @@ export function MarketEnvironment({ data }: Props) {
         <Metric label="涨跌停比" value={`${limitDownCount > 0 ? (breadth.limit_up_count / limitDownCount).toFixed(1) : breadth.limit_up_count}`} sub={`${breadth.limit_up_count}涨停 / ${limitDownCount}跌停`} tone="purple" />
       </div>
 
+      {!compact && (
       <div className="market-env-grid">
         <SimpleList
           title="跌停前排"
@@ -84,6 +86,7 @@ export function MarketEnvironment({ data }: Props) {
           }))}
         />
       </div>
+      )}
 
       <div className="market-env-row">
         <div className="card">

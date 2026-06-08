@@ -95,6 +95,12 @@ html, body {
   margin-bottom: 16px;
 }
 
+.review-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 /* 加载状态 */
 .loading {
   display: flex;
@@ -293,6 +299,15 @@ html, body {
 .plate-group-container {
   display: flex;
   flex-direction: column;
+}
+
+.plate-group-embedded .plate-toolbar {
+  margin-bottom: 10px;
+  background: var(--bg-primary);
+}
+
+.plate-group-embedded .plate-section {
+  background: var(--bg-primary);
 }
 
 .plate-toolbar {

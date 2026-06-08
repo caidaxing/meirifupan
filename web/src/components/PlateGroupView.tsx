@@ -3,6 +3,7 @@ import type { StockItem } from '../types'
 
 interface Props {
   stocks: StockItem[]
+  embedded?: boolean
 }
 
 type SortKey = 'up_limit_time' | 'up_limit_keep_times' | 'fengdan_money' | 'amount'
@@ -12,7 +13,7 @@ interface PlateGroup {
   stocks: StockItem[]
 }
 
-export function PlateGroupView({ stocks }: Props) {
+export function PlateGroupView({ stocks, embedded = false }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('fengdan_money')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -80,7 +81,7 @@ export function PlateGroupView({ stocks }: Props) {
   }
 
   return (
-    <div className="plate-group-container">
+    <div className={`plate-group-container ${embedded ? 'plate-group-embedded' : ''}`}>
       {/* Toolbar */}
       <div className="plate-toolbar">
         <input

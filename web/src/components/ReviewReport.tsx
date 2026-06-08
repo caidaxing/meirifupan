@@ -2,6 +2,7 @@ import type { SavedReview, SavedReviewHotStock, SavedReviewPlateReview, SavedRev
 
 interface Props {
   review: SavedReview | null
+  mode?: 'full' | 'limit-up' | 'emotion' | 'profit'
 }
 
 function fmtMoney(value: number | null | undefined) {
@@ -37,7 +38,7 @@ function hotSummaryTags(summary: SavedReview['hot_stock_summary']) {
   ].filter((item): item is string => item !== null)
 }
 
-export function ReviewReport({ review }: Props) {
+export function ReviewReport({ review, mode = 'full' }: Props) {
   if (!review) {
     return (
       <div className="card">
@@ -55,6 +56,9 @@ export function ReviewReport({ review }: Props) {
   const summaryText = review.hot_stock_summary?.text?.trim()
   const summaryTags = hotSummaryTags(review.hot_stock_summary)
   const showFocusSections = Boolean(summaryText || summaryTags.length > 0 || hotStocks.length > 0 || watchStocks.length > 0)
+  const showEmotion = mode === 'full' || mode === 'emotion'
+  const showLimitUp = mode === 'full' || mode === 'limit-up'
+  const showProfit = mode === 'full' || mode === 'profit'
 
   return (
     <div className="report-page">
@@ -72,7 +76,7 @@ export function ReviewReport({ review }: Props) {
         </div>
       </div>
 
-      {showFocusSections && (
+      {showEmotion && showFocusSections && (
         <div className="report-grid report-focus-grid">
           <section className="card">
             <div className="card-header">人气核心</div>
@@ -104,7 +108,7 @@ export function ReviewReport({ review }: Props) {
         </div>
       )}
 
-      {plateReviews.length > 0 && (
+      {showEmotion && plateReviews.length > 0 && (
         <section className="card">
           <div className="card-header">核心板块复盘</div>
           <div className="card-body report-plate-review-list">
@@ -113,6 +117,7 @@ export function ReviewReport({ review }: Props) {
         </section>
       )}
 
+      {showLimitUp && (
       <div className="report-grid">
         <section className="card">
           <div className="card-header">{plateReviews.length > 0 ? '主线板块速览' : '主线板块'}</div>
@@ -152,12 +157,15 @@ export function ReviewReport({ review }: Props) {
           </div>
         </section>
       </div>
+      )}
 
+      {showProfit && (
       <div className="report-three">
         <TextList title="风险点" items={review.risk_flags} tone="green" />
         <TextList title="机会观察" items={review.opportunities} tone="red" />
         <TextList title="明日计划" items={review.next_plan} tone="blue" />
       </div>
+      )}
     </div>
   )
 }

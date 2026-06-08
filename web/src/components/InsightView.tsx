@@ -4,9 +4,10 @@ import type { MarketInsights } from '../types'
 
 interface Props {
   data: MarketInsights
+  focus?: 'all' | 'profit'
 }
 
-export function InsightView({ data }: Props) {
+export function InsightView({ data, focus = 'all' }: Props) {
   const { seal_quality: sq, board_advancement: adv, capital_flow: flow, hot_stocks: hot } = data
 
   return (
@@ -18,8 +19,7 @@ export function InsightView({ data }: Props) {
       </div>
       {/* Row 2: Capital Flow Chart */}
       <CapitalFlowChart flow={flow} />
-      {/* Row 3: Hot Stocks */}
-      <HotStocksCard stocks={hot} />
+      {focus === 'all' && <HotStocksCard stocks={hot} />}
     </div>
   )
 }
