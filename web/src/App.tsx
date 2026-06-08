@@ -6,6 +6,7 @@ import { DataOverview } from './components/DataOverview'
 import { EmotionReview } from './components/EmotionReview'
 import { LimitUpReview } from './components/LimitUpReview'
 import { ProfitEffectReview } from './components/ProfitEffectReview'
+import { ReadingGuide } from './components/ReadingGuide'
 import './styles/globals.css'
 
 export default function App() {
@@ -59,6 +60,7 @@ export default function App() {
         <DateSelector dates={activeDates} value={date} onChange={setDate} />
       </div>
       <TabBar active={tab} onChange={setTab} />
+      <ReadingGuide active={tab} />
       <div className="tab-content">
         {tab === 'limit-up-review' && data && <LimitUpReview data={data} />}
         {tab === 'emotion-review' && data && (

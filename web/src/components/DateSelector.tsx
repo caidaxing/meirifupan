@@ -6,7 +6,7 @@ interface Props {
 
 export function DateSelector({ dates, value, onChange }: Props) {
   return (
-    <div className="date-selector" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div className="date-selector">
       <button
         className="btn"
         onClick={() => {
@@ -36,7 +36,7 @@ export function DateSelector({ dates, value, onChange }: Props) {
       >
         &rarr;
       </button>
-      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+      <span className="date-selector-hint">
         左右方向键切换
       </span>
     </div>
