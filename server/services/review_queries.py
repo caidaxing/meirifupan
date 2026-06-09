@@ -704,8 +704,9 @@ def get_emotion_heat_trend(conn: sqlite3.Connection, date: str, days: int = 60) 
             SELECT rank_no, stock_code, stock_name, latest_price, change_pct,
                    change_amount, amount, turnover_rate, source
             FROM hot_stocks
-            WHERE trade_date = ? AND rank_no <= 20
-            ORDER BY rank_no
+            WHERE trade_date = ?
+            ORDER BY rank_no, stock_code
+            LIMIT 20
             """,
             (trade_date,),
         ).fetchall()

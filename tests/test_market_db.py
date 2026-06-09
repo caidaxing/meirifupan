@@ -720,6 +720,31 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual(3, item["highest_board"])
         self.assertEqual("中际旭创", item["space_board_stocks"][0]["stock_name"])
 
+    def test_emotion_heat_trend_caps_hot_rank_to_twenty_rows(self):
+        from db import MarketDB
+        from server.services.review_queries import get_emotion_heat_trend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_market_breadth("2026-06-05", {"amount": 1_200_000_000_000})
+            db.import_hot_stocks("2026-06-05", [
+                {
+                    "rank_no": rank_no,
+                    "stock_code": f"300{idx:03d}",
+                    "stock_name": f"人气{idx}",
+                    "change_pct": 1.0,
+                }
+                for idx, rank_no in enumerate([1, *range(2, 21), 20, 20, 20], start=1)
+            ])
+
+            trend = get_emotion_heat_trend(db.conn, "2026-06-05", days=1)
+            db.close()
+
+        self.assertEqual(20, trend[0]["hot_top20_count"])
+        self.assertEqual(20, len(trend[0]["hot_top20"]))
+
     def test_import_limit_down_and_broken_boards_deduplicates_by_date_and_code(self):
         from db import MarketDB
 
