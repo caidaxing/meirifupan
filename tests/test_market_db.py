@@ -745,6 +745,48 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual(20, trend[0]["hot_top20_count"])
         self.assertEqual(20, len(trend[0]["hot_top20"]))
 
+    def test_hot_rank_prefers_eastmoney_popularity_over_turnover_rank(self):
+        from db import MarketDB
+        from server.services.review_queries import get_emotion_heat_trend, get_hot_stocks_rank
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_market_breadth("2026-06-05", {"amount": 1_200_000_000_000})
+            db.import_hot_stocks("2026-06-05", [
+                {
+                    "rank_no": 1,
+                    "stock_code": "300001",
+                    "stock_name": "成交额榜一",
+                    "change_pct": 9.0,
+                    "source": "spot_amount_rank",
+                },
+                {
+                    "rank_no": 1,
+                    "stock_code": "600001",
+                    "stock_name": "人气榜一",
+                    "change_pct": 2.0,
+                    "source": "eastmoney_emappdata",
+                },
+                {
+                    "rank_no": 2,
+                    "stock_code": "600002",
+                    "stock_name": "人气榜二",
+                    "change_pct": -1.0,
+                    "source": "eastmoney_emappdata",
+                },
+            ])
+
+            hot_rank = get_hot_stocks_rank(db.conn, "2026-06-05", limit=10)
+            trend = get_emotion_heat_trend(db.conn, "2026-06-05", days=1)
+            db.close()
+
+        self.assertEqual(["人气榜一", "人气榜二"], [item["stock_name"] for item in hot_rank])
+        self.assertEqual(2, trend[0]["hot_top20_count"])
+        self.assertEqual(0.5, trend[0]["hot_top20_avg_change_pct"])
+        self.assertEqual(["人气榜一", "人气榜二"], [item["stock_name"] for item in trend[0]["hot_top20"]])
+
     def test_import_limit_down_and_broken_boards_deduplicates_by_date_and_code(self):
         from db import MarketDB
 
@@ -1098,6 +1140,61 @@ class MarketDbTests(unittest.TestCase):
         self.assertIn("人气核心", markdown)
         self.assertIn("非涨停", markdown)
         self.assertIn("中际旭创", review["summary"])
+
+    def test_generate_daily_review_prefers_popularity_rank_over_turnover_rank(self):
+        from db import MarketDB
+        from generate_review import generate_daily_review
+
+        sample = {
+            "date": "2026-06-05",
+            "uplimit_reason": [
+                {
+                    "plate_code": "801001",
+                    "plate_name": "算力",
+                    "plate_score": 100,
+                    "stocks": [
+                        {
+                            "stock_code": "002918",
+                            "stock_name": "蒙娜丽莎",
+                            "up_limit_desc": "首板",
+                            "up_limit_keep_times": 1,
+                            "up_limit_time": "09:31",
+                        }
+                    ],
+                }
+            ],
+            "uplimit_hot": [],
+            "plate_rank": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            out_dir = Path(tmp) / "reports"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_uplimit_day(sample, raw_source="unit-test")
+            db.import_hot_stocks("2026-06-05", [
+                {
+                    "rank_no": 1,
+                    "stock_code": "300001",
+                    "stock_name": "成交额榜一",
+                    "change_pct": 8.0,
+                    "source": "spot_amount_rank",
+                },
+                {
+                    "rank_no": 1,
+                    "stock_code": "600001",
+                    "stock_name": "人气榜一",
+                    "change_pct": 2.0,
+                    "source": "eastmoney_emappdata",
+                },
+            ])
+            db.close()
+
+            review = generate_daily_review("2026-06-05", db_path=db_path, output_dir=out_dir)
+
+        self.assertEqual("人气榜一", review["hot_stocks"][0]["stock_name"])
+        self.assertNotIn("成交额榜一", [stock["stock_name"] for stock in review["hot_stocks"]])
 
     def test_generate_daily_review_adds_plate_reviews_with_core_stocks(self):
         from db import MarketDB

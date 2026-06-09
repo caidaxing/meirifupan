@@ -83,6 +83,21 @@ def _pct(part: int | float | None, total: int | float | None, digits: int = 1) -
     return _round_or_none((part or 0) / total * 100, digits)
 
 
+def _hot_stock_source_filter(conn: sqlite3.Connection, date: str) -> str:
+    """Prefer true popularity rankings; use turnover rank only as a fallback."""
+    row = conn.execute(
+        """
+        SELECT COUNT(*) as total
+        FROM hot_stocks
+        WHERE trade_date = ? AND source LIKE 'eastmoney%'
+        """,
+        (date,),
+    ).fetchone()
+    if row and row["total"]:
+        return "source LIKE 'eastmoney%'"
+    return "(source IS NULL OR source NOT LIKE 'eastmoney%')"
+
+
 def _compact_job_details(details: dict[str, Any]) -> dict[str, Any]:
     """Return concise job details for the UI."""
     compact = {
@@ -699,12 +714,13 @@ def get_emotion_heat_trend(conn: sqlite3.Connection, date: str, days: int = 60) 
                 (trade_date, highest_board),
             ).fetchall()
 
+        hot_filter = _hot_stock_source_filter(conn, trade_date)
         hot_rows = conn.execute(
-            """
+            f"""
             SELECT rank_no, stock_code, stock_name, latest_price, change_pct,
                    change_amount, amount, turnover_rate, source
             FROM hot_stocks
-            WHERE trade_date = ?
+            WHERE trade_date = ? AND {hot_filter}
             ORDER BY rank_no, stock_code
             LIMIT 20
             """,
@@ -1005,12 +1021,13 @@ def get_hot_stocks_derived(conn: sqlite3.Connection, date: str) -> list[dict[str
 
 def get_hot_stocks_rank(conn: sqlite3.Connection, date: str, limit: int = 30) -> list[dict[str, Any]]:
     """Get hot stock rankings from hot_stocks table."""
+    hot_filter = _hot_stock_source_filter(conn, date)
     rows = conn.execute(
-        """
+        f"""
         SELECT rank_no, stock_code, stock_name, latest_price, change_pct,
                change_amount, amount, turnover_rate, source
         FROM hot_stocks
-        WHERE trade_date = ?
+        WHERE trade_date = ? AND {hot_filter}
         ORDER BY rank_no
         LIMIT ?
         """,

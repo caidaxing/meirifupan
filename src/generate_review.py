@@ -39,6 +39,21 @@ def _row(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> di
     return _row_to_dict(row) if row else None
 
 
+def _hot_stock_source_filter(conn: sqlite3.Connection, trade_date: str) -> str:
+    """Prefer true popularity rankings; use turnover rank only as a fallback."""
+    row = conn.execute(
+        """
+        select count(*) as total
+        from hot_stocks
+        where trade_date = ? and source like 'eastmoney%'
+        """,
+        (trade_date,),
+    ).fetchone()
+    if row and row["total"]:
+        return "h.source like 'eastmoney%'"
+    return "(h.source is null or h.source not like 'eastmoney%')"
+
+
 def _fmt_money(value: float | int | None) -> str:
     if value is None:
         return "-"
@@ -101,9 +116,10 @@ def _hot_stock_signal(stock: dict[str, Any]) -> str:
 
 
 def build_hot_stocks(conn: sqlite3.Connection, trade_date: str, limit: int = 20) -> list[dict[str, Any]]:
+    hot_filter = _hot_stock_source_filter(conn, trade_date)
     hot_stocks = _rows(
         conn,
-        """
+        f"""
         select
             h.rank_no, h.stock_code, h.stock_name, h.latest_price,
             h.change_pct, h.change_amount,
@@ -120,8 +136,8 @@ def build_hot_stocks(conn: sqlite3.Connection, trade_date: str, limit: int = 20)
         from hot_stocks h
         left join limit_up_events e
             on h.trade_date = e.trade_date and h.stock_code = e.stock_code
-        where h.trade_date = ?
-        order by h.rank_no asc
+        where h.trade_date = ? and {hot_filter}
+        order by h.rank_no asc, h.stock_code asc
         limit ?
         """,
         (trade_date, limit),
