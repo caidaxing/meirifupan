@@ -122,7 +122,7 @@ export function EmotionTrend({ trend }: Props) {
 
   return (
     <div className="card" style={{ marginBottom: '16px' }}>
-      <div className="card-header">近5日趋势</div>
+      <div className="card-header">情绪趋势</div>
       <div className="card-body" style={{ padding: '8px' }}>
         <div ref={chartRef} style={{ width: '100%', height: '220px' }} />
       </div>

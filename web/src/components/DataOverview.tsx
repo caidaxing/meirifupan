@@ -92,10 +92,10 @@ export function DataOverview({ data, trend, marketTrend, latestJob }: Props) {
         <LimitUpStats stats={data.limit_up_stats} />
       </div>
       <MarketEnvironment data={data.market_environment} />
-      <CollapsibleSection title="近5日总览趋势" summary="成交额、红盘率、涨跌停、炸板" defaultOpen>
+      <CollapsibleSection title="总览趋势" summary="成交额、红盘率、涨跌停、炸板" defaultOpen>
         <MarketOverviewTrend trend={marketTrend} />
       </CollapsibleSection>
-      <CollapsibleSection title="近5日情绪趋势" summary="情绪、涨停、最高板">
+      <CollapsibleSection title="情绪趋势" summary="情绪、涨停、最高板">
         <EmotionTrend trend={trend} />
       </CollapsibleSection>
       <CollapsibleSection title="连板和热门板块" summary={`${data.board_tiers.length} 个梯队 · ${data.hot_plates.length} 个板块`}>

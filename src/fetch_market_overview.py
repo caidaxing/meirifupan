@@ -119,12 +119,13 @@ def fetch_market_overview(
     end_date: str | None = None,
     db_path: str = DEFAULT_DB_PATH,
     strict: bool = False,
+    lookback_days: int = 90,
 ) -> dict[str, Any]:
     """Update historical market turnover without overwriting breadth counts."""
     if end_date is None:
         end_date = datetime.now().strftime("%Y-%m-%d")
     if start_date is None:
-        start_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=14)).strftime("%Y-%m-%d")
+        start_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
     try:
         records = fetch_market_turnover_records(start_date, end_date)
@@ -154,9 +155,10 @@ def main() -> None:
     parser.add_argument("--end-date", help="结束日期，格式 YYYY-MM-DD")
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite 数据库路径")
     parser.add_argument("--strict", action="store_true", help="数据源失败时直接退出")
+    parser.add_argument("--lookback-days", type=int, default=90, help="未指定开始日期时回看多少个自然日")
     args = parser.parse_args()
 
-    result = fetch_market_overview(args.start_date, args.end_date, args.db, strict=args.strict)
+    result = fetch_market_overview(args.start_date, args.end_date, args.db, strict=args.strict, lookback_days=args.lookback_days)
     print(f"大盘总览补齐完成: {result}")
 
 

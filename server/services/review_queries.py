@@ -522,7 +522,20 @@ def get_market_environment(conn: sqlite3.Connection, date: str) -> dict[str, Any
 
 def get_market_overview_trend(conn: sqlite3.Connection, date: str, days: int = 5) -> list[dict[str, Any]]:
     """Return recent market overview metrics for charting."""
-    recent_dates = get_recent_dates(conn, date, days)
+    rows = conn.execute(
+        """
+        SELECT trade_date
+        FROM (
+            SELECT DISTINCT trade_date FROM limit_up_events WHERE trade_date <= ?
+            UNION
+            SELECT DISTINCT trade_date FROM market_breadth_daily WHERE trade_date <= ?
+        )
+        ORDER BY trade_date DESC
+        LIMIT ?
+        """,
+        (date, date, days),
+    ).fetchall()
+    recent_dates = [row["trade_date"] for row in rows]
     result: list[dict[str, Any]] = []
     prev_amount: float | None = None
 
@@ -539,7 +552,8 @@ def get_market_overview_trend(conn: sqlite3.Connection, date: str, days: int = 5
         breadth = _row_to_dict(breadth_row) if breadth_row else {}
 
         limit_up_stats = get_limit_up_stats(conn, trade_date)
-        limit_up_count = breadth.get("limit_up_count") or limit_up_stats.get("total") or 0
+        event_limit_up_count = limit_up_stats.get("total") or 0
+        limit_up_count = breadth.get("limit_up_count") or event_limit_up_count
         highest_board = limit_up_stats.get("highest_board") or 0
 
         limit_down_total = conn.execute(
@@ -577,6 +591,7 @@ def get_market_overview_trend(conn: sqlite3.Connection, date: str, days: int = 5
             "flat_count": flat_count,
             "up_rate": up_rate,
             "limit_up_count": limit_up_count,
+            "has_limit_up_events": event_limit_up_count > 0,
             "limit_down_count": limit_down_count,
             "broken_limit_up_count": broken_limit_up_count,
             "highest_board": highest_board,

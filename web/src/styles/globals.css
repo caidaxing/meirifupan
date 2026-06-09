@@ -21,7 +21,7 @@
 }
 
 html, body {
-  height: 100%;
+  min-height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', Helvetica, Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
@@ -32,7 +32,7 @@ html, body {
 }
 
 #root {
-  min-height: 100%;
+  min-height: 100vh;
 }
 
 /* 容器 */
@@ -85,6 +85,201 @@ html, body {
   grid-template-columns: 1fr auto 1fr;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.home-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.home-brief {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 18px;
+  align-items: stretch;
+  padding: 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.home-date {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.home-brief h2 {
+  font-size: 24px;
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+
+.home-brief p {
+  max-width: 960px;
+  color: var(--text-primary);
+  line-height: 1.75;
+}
+
+.home-score {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+
+.home-score span,
+.home-score small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.home-score strong {
+  color: var(--color-orange);
+  font-size: 34px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.home-panel {
+  min-width: 0;
+  padding: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.home-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.home-panel-head h3 {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.home-panel-head span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.home-panel-head strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.home-chart {
+  width: 100%;
+  min-width: 0;
+  height: 340px;
+}
+
+.home-chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 220px;
+  color: var(--text-secondary);
+}
+
+.home-tips {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.home-tips span {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.home-tips p {
+  margin-top: 3px;
+}
+
+.home-emotion-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.home-emotion-metric {
+  min-width: 0;
+}
+
+.home-emotion-metric span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.home-emotion-metric strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 132px;
+  padding: 14px;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.home-action-card:hover {
+  border-color: var(--color-blue);
+  background: color-mix(in srgb, var(--color-blue) 8%, var(--bg-secondary));
+}
+
+.home-action-card span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.home-action-card strong {
+  font-size: 24px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-action-card p {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 /* 两列网格 */
@@ -1263,6 +1458,10 @@ html, body {
   .insight-row {
     grid-template-columns: 1fr;
   }
+  .home-chart-grid,
+  .home-action-grid {
+    grid-template-columns: 1fr;
+  }
   .insight-metrics {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1386,6 +1585,31 @@ html, body {
 
   .top-row {
     grid-template-columns: 1fr;
+  }
+
+  .home-brief {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .home-brief h2 {
+    font-size: 22px;
+  }
+
+  .home-score strong {
+    font-size: 28px;
+  }
+
+  .home-chart {
+    height: 300px;
+  }
+
+  .home-emotion-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .home-action-card {
+    min-height: 112px;
   }
 
   .job-status-main {

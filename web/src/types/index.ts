@@ -108,6 +108,7 @@ export interface MarketOverviewTrendItem {
   flat_count: number
   up_rate: number | null
   limit_up_count: number
+  has_limit_up_events?: boolean
   limit_down_count: number
   broken_limit_up_count: number
   highest_board: number

@@ -6,6 +6,7 @@ import { DataOverview } from './components/DataOverview'
 import { EmotionReview } from './components/EmotionReview'
 import { LimitUpReview } from './components/LimitUpReview'
 import { ProfitEffectReview } from './components/ProfitEffectReview'
+import { ReviewHome } from './components/ReviewHome'
 import './styles/globals.css'
 
 export default function App() {
@@ -13,7 +14,7 @@ export default function App() {
   const hotDates = useHotDates()
   const latestJob = useLatestJob()
   const [date, setDate] = useState('')
-  const [tab, setTab] = useState<TabKey>('limit-up-review')
+  const [tab, setTab] = useState<TabKey>('review-home')
 
   const activeDates = reviewDates
 
@@ -61,6 +62,9 @@ export default function App() {
       </div>
       <TabBar active={tab} onChange={setTab} />
       <div className="tab-content">
+        {tab === 'review-home' && data && (
+          <ReviewHome data={data} emotionTrend={trend} marketTrend={marketTrend} onOpenTab={setTab} />
+        )}
         {tab === 'limit-up-review' && data && <LimitUpReview data={data} />}
         {tab === 'emotion-review' && data && (
           <EmotionReview data={data} trend={trend} hotData={hotData} hotLoading={hotLoading} hotError={hotError} />

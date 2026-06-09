@@ -31,8 +31,8 @@ export function useReview(date: string) {
     setLoading(true)
     Promise.all([
       fetchReview(date, ctrl.signal),
-      fetchEmotionTrend(date, 5, ctrl.signal),
-      fetchMarketOverviewTrend(date, 5, ctrl.signal),
+      fetchEmotionTrend(date, 60, ctrl.signal),
+      fetchMarketOverviewTrend(date, 60, ctrl.signal),
     ])
       .then(([review, trend, marketTrend]) => {
         setData(review)

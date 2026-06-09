@@ -552,6 +552,38 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual(3, trend[-1]["highest_board"])
         self.assertEqual(round((1_300_000_000_000 - 1_200_000_000_000) / 1_200_000_000_000 * 100, 2), trend[-1]["amount_change_pct"])
 
+    def test_market_overview_trend_includes_amount_only_dates(self):
+        from db import MarketDB
+        from server.services.review_queries import get_market_overview_trend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_market_breadth("2026-06-01", {"amount": 1_000_000_000_000})
+            db.import_market_breadth("2026-06-02", {"amount": 1_200_000_000_000})
+            db.import_uplimit_day({
+                "date": "2026-06-03",
+                "uplimit_reason": [
+                    {
+                        "plate_code": "801001",
+                        "plate_name": "芯片",
+                        "stocks": [{"stock_code": "000001", "stock_name": "样本"}],
+                    }
+                ],
+                "uplimit_hot": [],
+                "plate_rank": [],
+            })
+            db.import_market_breadth("2026-06-03", {"amount": 1_500_000_000_000})
+            trend = get_market_overview_trend(db.conn, "2026-06-03", days=3)
+            db.close()
+
+        self.assertEqual(["2026-06-01", "2026-06-02", "2026-06-03"], [item["date"] for item in trend])
+        self.assertEqual(1_200_000_000_000, trend[1]["amount"])
+        self.assertEqual(20.0, trend[1]["amount_change_pct"])
+        self.assertFalse(trend[0]["has_limit_up_events"])
+        self.assertTrue(trend[-1]["has_limit_up_events"])
+
     def test_import_limit_down_and_broken_boards_deduplicates_by_date_and_code(self):
         from db import MarketDB
 

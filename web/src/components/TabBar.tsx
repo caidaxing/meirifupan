@@ -1,4 +1,4 @@
-export type TabKey = 'limit-up-review' | 'emotion-review' | 'profit-effect' | 'data-overview'
+export type TabKey = 'review-home' | 'limit-up-review' | 'emotion-review' | 'profit-effect' | 'data-overview'
 
 interface Props {
   active: TabKey
@@ -6,6 +6,7 @@ interface Props {
 }
 
 const tabs: { key: TabKey; label: string }[] = [
+  { key: 'review-home', label: '复盘首页' },
   { key: 'limit-up-review', label: '涨停复盘' },
   { key: 'emotion-review', label: '情绪复盘' },
   { key: 'profit-effect', label: '赚钱效应' },

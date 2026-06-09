@@ -163,7 +163,7 @@ def run_daily_update(
         )
         run_step(
             "大盘总览趋势",
-            lambda: fetch_market_overview(start_date=recent_days[0], end_date=target_day, db_path=db_path),
+            lambda: fetch_market_overview(end_date=target_day, db_path=db_path, lookback_days=90),
             summary,
         )
         run_step("热门股票", lambda: _fetch_hot_stocks(db_path, target_day), summary)
