@@ -520,6 +520,71 @@ def get_market_environment(conn: sqlite3.Connection, date: str) -> dict[str, Any
     }
 
 
+def get_market_overview_trend(conn: sqlite3.Connection, date: str, days: int = 5) -> list[dict[str, Any]]:
+    """Return recent market overview metrics for charting."""
+    recent_dates = get_recent_dates(conn, date, days)
+    result: list[dict[str, Any]] = []
+    prev_amount: float | None = None
+
+    for trade_date in sorted(recent_dates):
+        breadth_row = conn.execute(
+            """
+            SELECT total_count, up_count, down_count, flat_count,
+                   limit_up_count, limit_down_count, amount
+            FROM market_breadth_daily
+            WHERE trade_date = ?
+            """,
+            (trade_date,),
+        ).fetchone()
+        breadth = _row_to_dict(breadth_row) if breadth_row else {}
+
+        limit_up_stats = get_limit_up_stats(conn, trade_date)
+        limit_up_count = breadth.get("limit_up_count") or limit_up_stats.get("total") or 0
+        highest_board = limit_up_stats.get("highest_board") or 0
+
+        limit_down_total = conn.execute(
+            "SELECT COUNT(*) as total FROM limit_down_events WHERE trade_date = ?",
+            (trade_date,),
+        ).fetchone()["total"]
+        limit_down_count = breadth.get("limit_down_count") or limit_down_total or 0
+
+        broken_limit_up_count = conn.execute(
+            "SELECT COUNT(*) as total FROM broken_limit_up_events WHERE trade_date = ?",
+            (trade_date,),
+        ).fetchone()["total"]
+
+        amount = breadth.get("amount")
+
+        total_count = breadth.get("total_count") or 0
+        up_count = breadth.get("up_count") or 0
+        down_count = breadth.get("down_count") or 0
+        flat_count = breadth.get("flat_count") or 0
+        up_rate = round(up_count / total_count * 100, 1) if total_count else None
+
+        amount_change_pct = None
+        if amount is not None and prev_amount:
+            amount_change_pct = round((amount - prev_amount) / prev_amount * 100, 2)
+        if amount is not None:
+            prev_amount = amount
+
+        result.append({
+            "date": trade_date,
+            "amount": amount,
+            "amount_change_pct": amount_change_pct,
+            "total_count": total_count,
+            "up_count": up_count,
+            "down_count": down_count,
+            "flat_count": flat_count,
+            "up_rate": up_rate,
+            "limit_up_count": limit_up_count,
+            "limit_down_count": limit_down_count,
+            "broken_limit_up_count": broken_limit_up_count,
+            "highest_board": highest_board,
+        })
+
+    return result
+
+
 def get_saved_review(conn: sqlite3.Connection, date: str) -> dict[str, Any] | None:
     """Get the generated structured review if it has been saved."""
     row = conn.execute(

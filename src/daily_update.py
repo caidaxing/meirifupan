@@ -17,6 +17,7 @@ from db import MarketDB
 from derive_review_data import derive_review_data
 from fetch_daily_review import get_recent_local_trade_days, get_recent_public_trade_days, get_recent_trade_days
 from fetch_hot import fetch_hot_boards, fetch_hot_stocks
+from fetch_market_overview import fetch_market_overview
 from fetch_missing_data import DEFAULT_DB_PATH, run_collectors
 from fetch_plate_index_daily import fetch_plate_index_daily
 from fetch_uplimit import fetch_sentiment_data, fetch_uplimit_data, load_token
@@ -158,6 +159,11 @@ def run_daily_update(
         run_step(
             "实时口径数据",
             lambda: run_collectors(target_day, db_path, kline_limit=0, include_realtime=True, include_historical=False),
+            summary,
+        )
+        run_step(
+            "大盘总览趋势",
+            lambda: fetch_market_overview(start_date=recent_days[0], end_date=target_day, db_path=db_path),
             summary,
         )
         run_step("热门股票", lambda: _fetch_hot_stocks(db_path, target_day), summary)

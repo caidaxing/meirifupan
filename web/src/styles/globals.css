@@ -201,6 +201,48 @@ html, body {
   white-space: nowrap;
 }
 
+.market-trend {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.market-trend-summary {
+  display: grid;
+  grid-template-columns: auto minmax(72px, auto) auto minmax(72px, auto) auto;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.market-trend-summary strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.market-trend-summary small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.market-trend-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.market-trend-chart {
+  width: 100%;
+  min-width: 0;
+  height: 240px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
 .collapsible-section {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -1357,6 +1399,26 @@ html, body {
   .job-step small {
     white-space: normal;
     word-break: break-word;
+  }
+
+  .market-trend-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .market-trend-summary span {
+    grid-column: 1 / -1;
+  }
+
+  .market-trend-summary small {
+    display: none;
+  }
+
+  .market-trend-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .market-trend-chart {
+    height: 220px;
   }
 
   .market-env-strip {

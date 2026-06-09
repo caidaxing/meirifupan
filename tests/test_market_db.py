@@ -490,14 +490,67 @@ class MarketDbTests(unittest.TestCase):
             db.init_schema()
             self.assertEqual(1, db.import_market_breadth("2026-06-03", snapshot))
             self.assertEqual(1, db.import_market_breadth("2026-06-03", {**snapshot, "up_count": 3200}))
+            self.assertEqual(1, db.import_market_breadth("2026-06-03", {"amount": 1_500_000_000_000}))
             db.close()
 
             conn = sqlite3.connect(db_path)
             row = conn.execute(
-                "select count(*), up_count from market_breadth_daily where trade_date = '2026-06-03'"
+                "select count(*), up_count, amount from market_breadth_daily where trade_date = '2026-06-03'"
             ).fetchone()
-            self.assertEqual((1, 3200), row)
+            self.assertEqual((1, 3200, 1_500_000_000_000), row)
             conn.close()
+
+    def test_market_overview_trend_returns_recent_totals(self):
+        from db import MarketDB
+        from server.services.review_queries import get_market_overview_trend
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            for i, trade_date in enumerate(["2026-06-01", "2026-06-02", "2026-06-03"], start=1):
+                db.import_uplimit_day({
+                    "date": trade_date,
+                    "uplimit_reason": [
+                        {
+                            "plate_code": "801001",
+                            "plate_name": "芯片",
+                            "stocks": [
+                                {
+                                    "stock_code": f"00000{i}",
+                                    "stock_name": f"样本{i}",
+                                    "up_limit_keep_times": i,
+                                    "up_limit_desc": "首板" if i == 1 else f"{i}连板",
+                                }
+                            ],
+                        }
+                    ],
+                    "uplimit_hot": [],
+                    "plate_rank": [],
+                })
+                db.import_market_breadth(trade_date, {
+                    "total_count": 5000,
+                    "up_count": 2000 + i * 100,
+                    "down_count": 2800 - i * 100,
+                    "flat_count": 200,
+                    "limit_up_count": i,
+                    "limit_down_count": i + 1,
+                    "amount": 1_000_000_000_000 + i * 100_000_000_000,
+                })
+                db.import_broken_limit_up_events(trade_date, [
+                    {"stock_code": f"60{i:04d}", "stock_name": f"炸板{i}", "open_count": i}
+                ])
+            trend = get_market_overview_trend(db.conn, "2026-06-03", days=2)
+            db.close()
+
+        self.assertEqual(["2026-06-02", "2026-06-03"], [item["date"] for item in trend])
+        self.assertEqual(1_300_000_000_000, trend[-1]["amount"])
+        self.assertEqual(46.0, trend[-1]["up_rate"])
+        self.assertEqual(3, trend[-1]["limit_up_count"])
+        self.assertEqual(4, trend[-1]["limit_down_count"])
+        self.assertEqual(1, trend[-1]["broken_limit_up_count"])
+        self.assertEqual(3, trend[-1]["highest_board"])
+        self.assertEqual(round((1_300_000_000_000 - 1_200_000_000_000) / 1_200_000_000_000 * 100, 2), trend[-1]["amount_change_pct"])
 
     def test_import_limit_down_and_broken_boards_deduplicates_by_date_and_code(self):
         from db import MarketDB

@@ -31,7 +31,7 @@ export default function App() {
     }
   }, [effectiveDate, date])
 
-  const { data, trend, loading, error } = useReview(effectiveDate)
+  const { data, trend, marketTrend, loading, error } = useReview(effectiveDate)
   const { data: insights, loading: insightLoading } = useInsights(effectiveDate)
   const hotDate = hotDates.includes(effectiveDate) ? effectiveDate : hotDates[0] ?? ''
   const { data: hotData, loading: hotLoading, error: hotError } = useHot(tab === 'emotion-review' ? hotDate : '')
@@ -68,7 +68,9 @@ export default function App() {
         {tab === 'profit-effect' && data && (
           <ProfitEffectReview data={data} insights={insights} loading={insightLoading} />
         )}
-        {tab === 'data-overview' && data && <DataOverview data={data} trend={trend} latestJob={latestJob} />}
+        {tab === 'data-overview' && data && (
+          <DataOverview data={data} trend={trend} marketTrend={marketTrend} latestJob={latestJob} />
+        )}
       </div>
     </div>
   )

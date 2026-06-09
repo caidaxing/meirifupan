@@ -1,4 +1,4 @@
-import type { ReviewData, EmotionTrendItem, MarketInsights, HotData, DataJob } from '../types'
+import type { ReviewData, EmotionTrendItem, MarketInsights, HotData, DataJob, MarketOverviewTrendItem } from '../types'
 
 const BASE = '/api'
 
@@ -23,6 +23,15 @@ export async function fetchEmotionTrend(date: string, days = 5, signal?: AbortSi
   const res = await fetch(`${BASE}/emotion/trend?date=${date}&days=${days}`, { signal })
   if (!res.ok) {
     throw new Error(`Failed to fetch emotion trend: ${res.statusText}`)
+  }
+  const json = await res.json()
+  return json.trend
+}
+
+export async function fetchMarketOverviewTrend(date: string, days = 5, signal?: AbortSignal): Promise<MarketOverviewTrendItem[]> {
+  const res = await fetch(`${BASE}/market/overview-trend?date=${date}&days=${days}`, { signal })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch market overview trend: ${res.statusText}`)
   }
   const json = await res.json()
   return json.trend

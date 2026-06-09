@@ -3,16 +3,18 @@ import {
   fetchReview,
   fetchEmotionTrend,
   fetchDates,
+  fetchMarketOverviewTrend,
   fetchInsights,
   fetchHot,
   fetchHotDates,
   fetchLatestJob,
 } from '../api/client'
-import type { ReviewData, EmotionTrendItem, MarketInsights, HotData, DataJob } from '../types'
+import type { ReviewData, EmotionTrendItem, MarketInsights, HotData, DataJob, MarketOverviewTrendItem } from '../types'
 
 export function useReview(date: string) {
   const [data, setData] = useState<ReviewData | null>(null)
   const [trend, setTrend] = useState<EmotionTrendItem[]>([])
+  const [marketTrend, setMarketTrend] = useState<MarketOverviewTrendItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -20,16 +22,22 @@ export function useReview(date: string) {
     if (!date) {
       setData(null)
       setTrend([])
+      setMarketTrend([])
       setLoading(false)
       setError(null)
       return
     }
     const ctrl = new AbortController()
     setLoading(true)
-    Promise.all([fetchReview(date, ctrl.signal), fetchEmotionTrend(date, 5, ctrl.signal)])
-      .then(([review, trend]) => {
+    Promise.all([
+      fetchReview(date, ctrl.signal),
+      fetchEmotionTrend(date, 5, ctrl.signal),
+      fetchMarketOverviewTrend(date, 5, ctrl.signal),
+    ])
+      .then(([review, trend, marketTrend]) => {
         setData(review)
         setTrend(trend)
+        setMarketTrend(marketTrend)
         setError(null)
       })
       .catch(e => {
@@ -39,7 +47,7 @@ export function useReview(date: string) {
     return () => ctrl.abort()
   }, [date])
 
-  return { data, trend, loading, error }
+  return { data, trend, marketTrend, loading, error }
 }
 
 export function useDates() {

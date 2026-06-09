@@ -21,6 +21,7 @@ from server.services.review_queries import (
     get_latest_data_job,
     get_limit_up_stats,
     get_market_environment,
+    get_market_overview_trend,
     get_connection,
     get_recent_dates,
     get_saved_review,
@@ -111,6 +112,26 @@ def get_emotion_trend(
             "date": date,
             "days": days,
             "trend": trend,
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/api/market/overview-trend")
+def get_market_trend(
+    date: str = Query(..., description="End date, e.g. 2026-06-03"),
+    days: int = Query(5, description="Number of trading days to include"),
+):
+    """Return recent market overview metrics."""
+    conn = get_connection()
+    try:
+        available = get_dates(conn)
+        if date not in available:
+            raise HTTPException(status_code=404, detail=f"No data for date {date}.")
+        return {
+            "date": date,
+            "days": days,
+            "trend": get_market_overview_trend(conn, date, days),
         }
     finally:
         conn.close()

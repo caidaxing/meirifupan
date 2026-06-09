@@ -802,13 +802,13 @@ class MarketDB:
             )
             values(?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(trade_date) do update set
-                total_count = excluded.total_count,
-                up_count = excluded.up_count,
-                down_count = excluded.down_count,
-                flat_count = excluded.flat_count,
-                limit_up_count = excluded.limit_up_count,
-                limit_down_count = excluded.limit_down_count,
-                amount = excluded.amount,
+                total_count = coalesce(excluded.total_count, market_breadth_daily.total_count),
+                up_count = coalesce(excluded.up_count, market_breadth_daily.up_count),
+                down_count = coalesce(excluded.down_count, market_breadth_daily.down_count),
+                flat_count = coalesce(excluded.flat_count, market_breadth_daily.flat_count),
+                limit_up_count = coalesce(excluded.limit_up_count, market_breadth_daily.limit_up_count),
+                limit_down_count = coalesce(excluded.limit_down_count, market_breadth_daily.limit_down_count),
+                amount = coalesce(excluded.amount, market_breadth_daily.amount),
                 raw_payload = excluded.raw_payload,
                 updated_at = current_timestamp
             """,

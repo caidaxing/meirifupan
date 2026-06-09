@@ -98,6 +98,21 @@ export interface EmotionTrendItem {
   advice: string
 }
 
+export interface MarketOverviewTrendItem {
+  date: string
+  amount: number | null
+  amount_change_pct: number | null
+  total_count: number
+  up_count: number
+  down_count: number
+  flat_count: number
+  up_rate: number | null
+  limit_up_count: number
+  limit_down_count: number
+  broken_limit_up_count: number
+  highest_board: number
+}
+
 export interface MarketBreadth {
   total_count: number
   up_count: number

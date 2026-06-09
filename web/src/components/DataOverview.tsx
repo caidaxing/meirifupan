@@ -1,4 +1,4 @@
-import type { DataJob, EmotionTrendItem, ReviewData } from '../types'
+import type { DataJob, EmotionTrendItem, MarketOverviewTrendItem, ReviewData } from '../types'
 import { BoardTiers } from './BoardTiers'
 import { CollapsibleSection } from './CollapsibleSection'
 import { EmotionTrend } from './EmotionTrend'
@@ -7,11 +7,13 @@ import { HotPlates } from './HotPlates'
 import { IndexCards } from './IndexCards'
 import { LimitUpStats } from './LimitUpStats'
 import { MarketEnvironment } from './MarketEnvironment'
+import { MarketOverviewTrend } from './MarketOverviewTrend'
 import { StockTable } from './StockTable'
 
 interface Props {
   data: ReviewData
   trend: EmotionTrendItem[]
+  marketTrend: MarketOverviewTrendItem[]
   latestJob?: DataJob | null
 }
 
@@ -81,7 +83,7 @@ function DataUpdateStatus({ job }: { job?: DataJob | null }) {
   )
 }
 
-export function DataOverview({ data, trend, latestJob }: Props) {
+export function DataOverview({ data, trend, marketTrend, latestJob }: Props) {
   return (
     <div className="review-stack">
       <DataUpdateStatus job={latestJob} />
@@ -90,7 +92,10 @@ export function DataOverview({ data, trend, latestJob }: Props) {
         <LimitUpStats stats={data.limit_up_stats} />
       </div>
       <MarketEnvironment data={data.market_environment} />
-      <CollapsibleSection title="近5日趋势" summary="情绪、涨停、最高板">
+      <CollapsibleSection title="近5日总览趋势" summary="成交额、红盘率、涨跌停、炸板" defaultOpen>
+        <MarketOverviewTrend trend={marketTrend} />
+      </CollapsibleSection>
+      <CollapsibleSection title="近5日情绪趋势" summary="情绪、涨停、最高板">
         <EmotionTrend trend={trend} />
       </CollapsibleSection>
       <CollapsibleSection title="连板和热门板块" summary={`${data.board_tiers.length} 个梯队 · ${data.hot_plates.length} 个板块`}>
