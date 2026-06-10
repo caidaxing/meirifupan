@@ -7,6 +7,7 @@ interface Props {
 export function HotView({ data }: Props) {
   return (
     <div className="insight-container">
+      <ThsHotTable stocks={data.shortline_hot ?? []} title="短线热榜 Top 30" />
       <HotStocksTable stocks={data.hot_stocks} />
       <div className="insight-row">
         <ThsHotTable stocks={data.ths_hot ?? []} title="同花顺热榜 Top 30" />

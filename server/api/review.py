@@ -222,6 +222,7 @@ def get_hot(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
     conn = get_connection()
     try:
         hot_stocks = get_hot_stocks_rank(conn, date, limit=30)
+        shortline_hot = get_stock_hot_ranks(conn, date, source="shortline_hot", period="day", list_type="kpl_style", limit=30)
         ths_hot = get_stock_hot_ranks(conn, date, source="ths_hot", period="day", list_type="normal", limit=30)
         ths_skyrocket = get_stock_hot_ranks(conn, date, source="ths_hot", period="hour", list_type="skyrocket", limit=30)
         concept_boards = get_hot_boards_rank(conn, date, board_type="concept", limit=20)
@@ -230,6 +231,7 @@ def get_hot(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
         return {
             "date": date,
             "hot_stocks": hot_stocks,
+            "shortline_hot": shortline_hot,
             "ths_hot": ths_hot,
             "ths_skyrocket": ths_skyrocket,
             "concept_boards": concept_boards,

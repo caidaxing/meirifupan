@@ -613,6 +613,98 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual(["航空发动机"], rows[0]["concept_tags"])
         self.assertEqual("4天2板", rows[0]["popularity_tag"])
 
+    def test_derive_shortline_hot_ranks_merges_limit_up_and_popularity(self):
+        from db import MarketDB
+        from derive_shortline_hot import derive_shortline_hot_ranks
+        from server.services.review_queries import get_stock_hot_ranks
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_uplimit_day({
+                "date": "2026-06-10",
+                "uplimit_reason": [
+                    {
+                        "plate_code": "801001",
+                        "plate_name": "机器人",
+                        "plate_score": 98,
+                        "stocks": [
+                            {
+                                "stock_code": "002001",
+                                "stock_name": "三板核心",
+                                "stock_price": 12.3,
+                                "up_limit_keep_times": 3,
+                                "up_limit_time": "09:31:00",
+                                "reason": "机器人核心股加速",
+                                "fengdan_money": 250000000,
+                                "amount": 900000000,
+                            }
+                        ],
+                    }
+                ],
+                "uplimit_hot": [["机器人", "801001", 98]],
+                "plate_rank": [],
+            })
+            db.import_stock_hot_ranks("2026-06-10", [
+                {
+                    "rank_no": 1,
+                    "stock_code": "300001",
+                    "stock_name": "人气趋势股",
+                    "change_pct": 6.8,
+                    "hot_value": 9000000,
+                    "concept_tags": ["算力"],
+                    "popularity_tag": "趋势中军",
+                },
+                {
+                    "rank_no": 5,
+                    "stock_code": "002001",
+                    "stock_name": "三板核心",
+                    "change_pct": 10.0,
+                    "hot_value": 4000000,
+                    "concept_tags": ["机器人"],
+                    "popularity_tag": "3连板",
+                },
+            ], source="ths_hot", period="day", list_type="normal")
+            db.import_stock_hot_ranks("2026-06-10", [
+                {
+                    "rank_no": 2,
+                    "stock_code": "300001",
+                    "stock_name": "人气趋势股",
+                    "change_pct": 6.8,
+                    "hot_value": 5000000,
+                    "concept_tags": ["算力"],
+                    "popularity_tag": "快速上升",
+                },
+            ], source="ths_hot", period="hour", list_type="skyrocket")
+            db.import_hot_stocks("2026-06-10", [
+                {
+                    "rank_no": 3,
+                    "stock_code": "300001",
+                    "stock_name": "人气趋势股",
+                    "change_pct": 6.8,
+                    "source": "eastmoney",
+                }
+            ])
+
+            count = derive_shortline_hot_ranks(db.conn, "2026-06-10", limit=10)
+            rows = get_stock_hot_ranks(
+                db.conn,
+                "2026-06-10",
+                source="shortline_hot",
+                period="day",
+                list_type="kpl_style",
+                limit=10,
+            )
+            db.close()
+
+        self.assertEqual(2, count)
+        self.assertEqual("002001", rows[0]["stock_code"])
+        self.assertGreater(rows[0]["hot_value"], rows[1]["hot_value"])
+        self.assertIn("机器人", rows[0]["concept_tags"])
+        self.assertEqual("3连板", rows[0]["popularity_tag"])
+        self.assertEqual("300001", rows[1]["stock_code"])
+
     def test_market_overview_trend_returns_recent_totals(self):
         from db import MarketDB
         from server.services.review_queries import get_market_overview_trend

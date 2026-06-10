@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from api_client import QuantAPI
 from db import MarketDB
 from derive_review_data import derive_review_data
+from derive_shortline_hot import derive_shortline_hot
 from fetch_daily_review import get_recent_local_trade_days, get_recent_public_trade_days, get_recent_trade_days
 from fetch_hot import fetch_hot_boards, fetch_hot_stocks
 from fetch_market_overview import fetch_market_overview
@@ -169,6 +170,7 @@ def run_daily_update(
         )
         run_step("热门股票", lambda: _fetch_hot_stocks(db_path, target_day), summary)
         run_step("热门板块", lambda: _fetch_hot_boards(db_path, target_day), summary)
+        run_step("短线热榜", lambda: {"shortline_hot": derive_shortline_hot(db_path, target_day)}, summary)
         run_step(
             "真实板块日线",
             lambda: fetch_plate_index_daily(

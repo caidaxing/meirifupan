@@ -452,6 +452,7 @@ export interface HotBoardRank {
 export interface HotData {
   date: string
   hot_stocks: HotStockRank[]
+  shortline_hot: MultiSourceHotStockRank[]
   ths_hot: MultiSourceHotStockRank[]
   ths_skyrocket: MultiSourceHotStockRank[]
   concept_boards: HotBoardRank[]
