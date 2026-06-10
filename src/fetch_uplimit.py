@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta
+from typing import Any
 
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -14,6 +15,129 @@ from db import MarketDB
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "data", "market_review.db")
+
+
+def _is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return value != value
+    except Exception:
+        return False
+
+
+def _clean(value: Any) -> Any:
+    if _is_blank(value):
+        return None
+    if hasattr(value, "item"):
+        try:
+            return _clean(value.item())
+        except Exception:
+            pass
+    return value
+
+
+def _num(value: Any) -> float | None:
+    value = _clean(value)
+    if value in ("", "-", "--", None):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int(value: Any) -> int | None:
+    value = _num(value)
+    return int(value) if value is not None else None
+
+
+def _text(value: Any) -> str | None:
+    value = _clean(value)
+    if value is None:
+        return None
+    return str(value)
+
+
+def _stock_code(value: Any) -> str:
+    code = str(value or "").strip()
+    if code.lower().startswith(("sh", "sz", "bj")):
+        code = code[2:]
+    return code.upper()
+
+
+def _compact_time(value: Any) -> str | None:
+    text = _text(value)
+    if not text:
+        return None
+    if len(text) == 6 and text.isdigit():
+        return f"{text[:2]}:{text[2:4]}:{text[4:]}"
+    return text
+
+
+def _safe_plate_code(name: str) -> str:
+    return "akshare_" + name.replace(" ", "_")
+
+
+def _dataframe_records(df: Any) -> list[dict[str, Any]]:
+    return [dict(row) for row in df.to_dict(orient="records")]
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "401" in text or "unauthorized" in text
+
+
+def fetch_akshare_uplimit_day(date: str) -> dict[str, Any]:
+    """Use Eastmoney limit-up pool as a free fallback when Quant auth fails."""
+    import akshare as ak
+
+    df = ak.stock_zt_pool_em(date=date.replace("-", ""))
+    records = _dataframe_records(df)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in records:
+        industry = _text(row.get("所属行业")) or "未分组"
+        grouped.setdefault(industry, []).append(row)
+
+    plates = []
+    hot_plates = []
+    for plate_name, rows in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
+        plate_code = _safe_plate_code(plate_name)
+        stocks = []
+        for row in rows:
+            stocks.append({
+                "stock_code": _stock_code(row.get("代码")),
+                "stock_name": _text(row.get("名称")),
+                "stock_price": _num(row.get("最新价")),
+                "up_limit_desc": _text(row.get("涨停统计")),
+                "up_limit_keep_times": _int(row.get("连板数")) or 1,
+                "up_limit_type": "akshare_limit_up",
+                "up_limit_time": _compact_time(row.get("首次封板时间") or row.get("最后封板时间")),
+                "reason": plate_name,
+                "fengdan_money": _num(row.get("封板资金")),
+                "turnover_ration_real": _num(row.get("换手率")),
+                "actualcirculation_value": _num(row.get("流通市值")),
+                "amount": _num(row.get("成交额")),
+                "market_type": _text(row.get("所属行业")),
+                "raw": row,
+            })
+        plates.append({
+            "plate_code": plate_code,
+            "plate_name": plate_name,
+            "plate_score": len(stocks),
+            "stocks": stocks,
+        })
+        hot_plates.append([plate_name, plate_code, len(stocks)])
+
+    return {
+        "date": date,
+        "uplimit_reason": plates,
+        "uplimit_hot": hot_plates[:20],
+        "plate_rank": [
+            {"plate_code": item[1], "plate_name": item[0], "score": item[2]}
+            for item in hot_plates[:30]
+        ],
+    }
 
 
 def load_token():
@@ -76,7 +200,19 @@ def fetch_uplimit_data(api: QuantAPI, date: str, db: MarketDB):
 
     # 1. 涨停原因（含板块、个股详情）
     print("  [1/3] 涨停原因...")
-    reason_data = api.get_uplimit_reason(date, page_size=200)
+    try:
+        reason_data = api.get_uplimit_reason(date, page_size=200)
+    except Exception as exc:
+        if not _is_auth_error(exc):
+            raise
+        print(f"    ⚠️  Quant token 无权限或已过期，改用免费涨停池兜底: {exc}")
+        day_data = fetch_akshare_uplimit_day(date)
+        db.import_uplimit_day(day_data, raw_source="akshare.stock_zt_pool_em")
+        total_stocks = sum(len(p.get("stocks", [])) for p in day_data.get("uplimit_reason") or [])
+        print(f"    ✅ 免费源写入 {len(day_data.get('uplimit_reason') or [])} 个行业, {total_stocks} 只涨停股")
+        print(f"  💾 已写入数据库: {db.db_path}")
+        return day_data
+
     if reason_data.get("code") == 20000 and reason_data.get("data"):
         plates = reason_data["data"]
         total_stocks = sum(len(p.get("stocks", [])) for p in plates)

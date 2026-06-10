@@ -407,6 +407,76 @@ class MarketDbTests(unittest.TestCase):
             self.assertEqual(1, conn.execute("select count(*) from plate_hot_rank").fetchone()[0])
             conn.close()
 
+    def test_fetch_uplimit_data_falls_back_to_akshare_when_quant_is_unauthorized(self):
+        from db import MarketDB
+        import fetch_uplimit
+        from fetch_uplimit import fetch_uplimit_data
+
+        class FakeAPI:
+            def get_uplimit_reason(self, date, page_size=200):
+                raise Exception("HTTP Error 401: Unauthorized")
+
+            def get_uplimit_hot(self, date, limit=20):
+                raise AssertionError("should not call quant hot after unauthorized")
+
+        original_fetch = fetch_uplimit.fetch_akshare_uplimit_day
+        fetch_uplimit.fetch_akshare_uplimit_day = lambda date: {
+            "date": date,
+            "uplimit_reason": [
+                {
+                    "plate_code": "akshare_机器人",
+                    "plate_name": "机器人",
+                    "plate_score": None,
+                    "stocks": [
+                        {
+                            "stock_code": "002001",
+                            "stock_name": "兜底涨停",
+                            "stock_price": 12.34,
+                            "up_limit_keep_times": 2,
+                            "up_limit_time": "09:31:00",
+                            "reason": "机器人",
+                            "fengdan_money": 120000000,
+                            "amount": 900000000,
+                        }
+                    ],
+                }
+            ],
+            "uplimit_hot": [["机器人", "akshare_机器人", 1]],
+            "plate_rank": [],
+        }
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                db_path = Path(tmp) / "market.db"
+                db = MarketDB(db_path)
+                db.init_schema()
+                data = fetch_uplimit_data(FakeAPI(), "2026-06-10", db=db)
+                db.close()
+
+                conn = sqlite3.connect(db_path)
+                row = conn.execute(
+                    """
+                    select stock_name, up_limit_keep_times, up_limit_time, reason
+                    from limit_up_events
+                    where trade_date = '2026-06-10' and stock_code = '002001'
+                    """
+                ).fetchone()
+                source = conn.execute(
+                    """
+                    select source from raw_api_responses
+                    where trade_date = '2026-06-10' and endpoint = 'uplimit_day'
+                    """
+                ).fetchone()[0]
+                conn.close()
+        finally:
+            fetch_uplimit.fetch_akshare_uplimit_day = original_fetch
+
+        self.assertEqual("兜底涨停", row[0])
+        self.assertEqual(2, row[1])
+        self.assertEqual("09:31:00", row[2])
+        self.assertEqual("机器人", row[3])
+        self.assertEqual("akshare.stock_zt_pool_em", source)
+        self.assertEqual(1, len(data["uplimit_reason"]))
+
     def test_build_html_preview_contains_market_sections(self):
         from db import MarketDB
         from build_data_preview_html import build_html_preview
