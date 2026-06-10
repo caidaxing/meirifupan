@@ -19,6 +19,23 @@ US_FAMOUS_SECTORS = ["科技类", "汽车能源类", "媒体类", "金融类", "
 CLS_ROLL_URL = "https://www.cls.cn/v1/roll/get_roll_list"
 CLS_WEB_VERSION = "8.7.9"
 CHINA_TZ = timezone(timedelta(hours=8))
+TENCENT_US_QUOTES_URL = "https://qt.gtimg.cn/q="
+TENCENT_US_SYMBOLS: dict[str, tuple[str, str]] = {
+    "NVDA": ("英伟达", "科技类"),
+    "AAPL": ("苹果", "科技类"),
+    "MSFT": ("微软", "科技类"),
+    "GOOGL": ("谷歌A", "科技类"),
+    "META": ("Meta", "媒体类"),
+    "AMZN": ("亚马逊", "制造零售类"),
+    "TSLA": ("特斯拉", "汽车能源类"),
+    "AMD": ("AMD", "科技类"),
+    "AVGO": ("博通", "科技类"),
+    "MU": ("美光科技", "科技类"),
+    "NFLX": ("奈飞", "媒体类"),
+    "JPM": ("摩根大通", "金融类"),
+    "LLY": ("礼来", "医药食品类"),
+    "WMT": ("沃尔玛", "制造零售类"),
+}
 
 
 class TimeoutError(RuntimeError):
@@ -320,6 +337,76 @@ def fetch_us_stock_records(quote_date: str, limit: int = 60) -> list[dict[str, A
                 "change_amount": _num(_first(row, ["涨跌额", "change_amount", "涨跌"])),
                 "raw_payload": row,
             })
+    records.sort(key=lambda item: abs(item.get("change_pct") or 0), reverse=True)
+    if records:
+        return records[:limit]
+    try:
+        return fetch_tencent_us_stock_records(limit=limit)
+    except Exception as exc:
+        print(f"  ⚠️  美股备用源 tencent 失败: {exc}")
+        return []
+
+
+def _parse_tencent_us_quote_line(
+    line: str,
+    symbol_meta: dict[str, tuple[str, str]] | None = None,
+) -> dict[str, Any] | None:
+    symbol_meta = symbol_meta or TENCENT_US_SYMBOLS
+    if '="' not in line:
+        return None
+    raw_symbol = line.split("=", 1)[0].replace("v_us", "").strip().upper()
+    if not raw_symbol:
+        return None
+    payload = line.split("=", 1)[1].strip().strip(";").strip('"')
+    parts = payload.split("~")
+    if len(parts) < 33:
+        return None
+    symbol = (parts[2] or raw_symbol).split(".", 1)[0].upper()
+    default_name, default_sector = symbol_meta.get(symbol, (symbol, "美股核心"))
+    return {
+        "symbol": symbol,
+        "stock_name": _text(parts[1]) or default_name,
+        "sector": default_sector,
+        "latest_price": _num(parts[3]),
+        "change_pct": _num(parts[32]),
+        "change_amount": _num(parts[31]),
+        "raw_payload": {
+            "source": "tencent_us_quote",
+            "line": line,
+            "parts": parts,
+        },
+    }
+
+
+def fetch_tencent_us_stock_records(limit: int = 60) -> list[dict[str, Any]]:
+    """Fetch core US stock quotes from Tencent as a fallback for Eastmoney."""
+    import requests
+
+    query = ",".join(f"us{symbol}" for symbol in TENCENT_US_SYMBOLS.keys())
+    response = requests.get(
+        f"{TENCENT_US_QUOTES_URL}{query}",
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+            ),
+            "Referer": "https://gu.qq.com/",
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    text = response.content.decode(response.apparent_encoding or "gbk", errors="replace")
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for line in text.splitlines():
+        record = _parse_tencent_us_quote_line(line)
+        if not record:
+            continue
+        symbol = record["symbol"]
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        records.append(record)
     records.sort(key=lambda item: abs(item.get("change_pct") or 0), reverse=True)
     return records[:limit]
 

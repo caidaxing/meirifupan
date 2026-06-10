@@ -1820,6 +1820,57 @@ class MarketDbTests(unittest.TestCase):
         self.assertIn("SK海力士", record["content"])
         self.assertIn("2395722", record["url"])
 
+    def test_parse_tencent_us_quote_line_extracts_core_fields(self):
+        from fetch_premarket import _parse_tencent_us_quote_line
+
+        line = (
+            'v_usNVDA="200~英伟达~NVDA.OQ~208.19~208.64~210.62~180962450~0~0~'
+            '206.40~300~0~0~0~0~0~0~0~0~206.61~100~0~0~0~0~0~0~0~0~~'
+            '2026-06-09 16:00:01~-0.45~-0.22~211.40~199.34~USD~180962450~'
+            '37202969916~0.75~31.88~~42.49~~5.78~48432.68200~50425.69990~'
+            'Nvidia Corporation~6.53~236.26~140.65~200~25.80~0.13~50425.69990";'
+        )
+
+        record = _parse_tencent_us_quote_line(line, {"NVDA": ("英伟达", "科技类")})
+
+        self.assertIsNotNone(record)
+        self.assertEqual("NVDA", record["symbol"])
+        self.assertEqual("英伟达", record["stock_name"])
+        self.assertEqual("科技类", record["sector"])
+        self.assertEqual(208.19, record["latest_price"])
+        self.assertEqual(-0.22, record["change_pct"])
+        self.assertEqual(-0.45, record["change_amount"])
+
+    def test_fetch_us_stock_records_uses_tencent_fallback_when_eastmoney_fails(self):
+        import fetch_premarket
+
+        original_timeout = fetch_premarket.call_with_timeout
+        sentinel = object()
+        original_fallback = getattr(fetch_premarket, "fetch_tencent_us_stock_records", sentinel)
+        fetch_premarket.call_with_timeout = lambda fn, seconds=18: (_ for _ in ()).throw(RuntimeError("blocked"))
+        fetch_premarket.fetch_tencent_us_stock_records = lambda limit=60: [
+            {
+                "symbol": "NVDA",
+                "stock_name": "英伟达",
+                "sector": "科技类",
+                "latest_price": 208.19,
+                "change_pct": -0.22,
+                "change_amount": -0.45,
+                "raw_payload": {"source": "tencent"},
+            }
+        ]
+        try:
+            records = fetch_premarket.fetch_us_stock_records("2026-06-10", limit=3)
+        finally:
+            fetch_premarket.call_with_timeout = original_timeout
+            if original_fallback is sentinel:
+                delattr(fetch_premarket, "fetch_tencent_us_stock_records")
+            else:
+                fetch_premarket.fetch_tencent_us_stock_records = original_fallback
+
+        self.assertEqual(1, len(records))
+        self.assertEqual("NVDA", records[0]["symbol"])
+
 
 if __name__ == "__main__":
     unittest.main()
