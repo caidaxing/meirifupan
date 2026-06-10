@@ -1331,11 +1331,12 @@ class MarketDB:
     def import_premarket_news(self, guide_date: str, records: list[dict[str, Any]]) -> int:
         """导入盘前新闻。"""
         count = 0
-        for r in records:
+        valid_records = [r for r in records if str(r.get("title") or "").strip()]
+        if valid_records:
+            self.conn.execute("delete from premarket_news where guide_date = ?", (guide_date,))
+        for r in valid_records:
             title = str(r.get("title") or "").strip()
             source = str(r.get("source") or "news").strip()
-            if not title:
-                continue
             self.conn.execute(
                 """
                 insert into premarket_news(
@@ -1366,10 +1367,11 @@ class MarketDB:
     def import_stock_announcements(self, notice_date: str, records: list[dict[str, Any]]) -> int:
         """导入上市公司公告。"""
         count = 0
-        for r in records:
+        valid_records = [r for r in records if str(r.get("title") or "").strip()]
+        if valid_records:
+            self.conn.execute("delete from stock_announcements where notice_date = ?", (notice_date,))
+        for r in valid_records:
             title = str(r.get("title") or "").strip()
-            if not title:
-                continue
             stock_code = str(r.get("stock_code") or "").strip()
             stock_name = r.get("stock_name")
             if stock_code:
@@ -1405,10 +1407,11 @@ class MarketDB:
     def import_us_stock_quotes(self, quote_date: str, records: list[dict[str, Any]]) -> int:
         """导入隔夜美股核心个股行情。"""
         count = 0
-        for r in records:
+        valid_records = [r for r in records if str(r.get("symbol") or "").strip()]
+        if valid_records:
+            self.conn.execute("delete from us_stock_quotes where quote_date = ?", (quote_date,))
+        for r in valid_records:
             symbol = str(r.get("symbol") or "").strip().upper()
-            if not symbol:
-                continue
             self.conn.execute(
                 """
                 insert into us_stock_quotes(

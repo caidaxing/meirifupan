@@ -127,6 +127,22 @@ def _code(value: Any) -> str | None:
     return text
 
 
+def _normalize_us_symbol(value: Any) -> str | None:
+    text = _text(value)
+    if not text:
+        return None
+    text = text.upper().strip()
+    if text.startswith("US") and len(text) > 2:
+        text = text[2:]
+    if "." in text:
+        left, right = text.split(".", 1)
+        if left.isdigit() and right:
+            text = right
+        else:
+            text = left
+    return text.replace("-", ".") or None
+
+
 def _fallback_title(row: dict[str, Any]) -> str | None:
     for value in row.values():
         text = _text(value)
@@ -321,10 +337,9 @@ def fetch_us_stock_records(quote_date: str, limit: int = 60) -> list[dict[str, A
             print(f"  ⚠️  美股源 {sector} 失败: {exc}")
             continue
         for row in rows:
-            symbol = _text(_first(row, ["代码", "symbol", "编码"]))
+            symbol = _normalize_us_symbol(_first(row, ["代码", "symbol", "编码"]))
             if not symbol:
                 continue
-            symbol = symbol.replace(".O", "").replace(".N", "").upper()
             if symbol in seen:
                 continue
             seen.add(symbol)

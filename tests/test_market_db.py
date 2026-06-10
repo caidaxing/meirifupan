@@ -1841,6 +1841,14 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual(-0.22, record["change_pct"])
         self.assertEqual(-0.45, record["change_amount"])
 
+    def test_normalize_us_symbol_handles_eastmoney_and_quote_suffixes(self):
+        from fetch_premarket import _normalize_us_symbol
+
+        self.assertEqual("QCOM", _normalize_us_symbol("105.QCOM"))
+        self.assertEqual("NVDA", _normalize_us_symbol("NVDA.OQ"))
+        self.assertEqual("BABA", _normalize_us_symbol("BABA.N"))
+        self.assertEqual("TSLA", _normalize_us_symbol("usTSLA"))
+
     def test_fetch_us_stock_records_uses_tencent_fallback_when_eastmoney_fails(self):
         import fetch_premarket
 
@@ -1870,6 +1878,51 @@ class MarketDbTests(unittest.TestCase):
 
         self.assertEqual(1, len(records))
         self.assertEqual("NVDA", records[0]["symbol"])
+
+    def test_premarket_imports_replace_same_day_snapshot_when_new_records_exist(self):
+        from db import MarketDB
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_premarket_news("2026-06-10", [
+                {"source": "eastmoney", "title": "旧新闻", "published_at": "2026-06-10 07:00:00"}
+            ])
+            db.import_premarket_news("2026-06-10", [
+                {"source": "cls", "title": "新新闻", "published_at": "2026-06-10 08:00:00"}
+            ])
+            db.import_us_stock_quotes("2026-06-10", [
+                {"symbol": "105.QCOM", "stock_name": "旧高通", "change_pct": -5.67}
+            ])
+            db.import_us_stock_quotes("2026-06-10", [
+                {"symbol": "NVDA", "stock_name": "英伟达", "change_pct": 1.23}
+            ])
+            db.import_stock_announcements("2026-06-09", [
+                {"stock_code": "600001", "stock_name": "旧公告股", "title": "旧公告"}
+            ])
+            db.import_stock_announcements("2026-06-09", [
+                {"stock_code": "600002", "stock_name": "新公告股", "title": "新公告"}
+            ])
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            try:
+                news_rows = conn.execute(
+                    "select source, title from premarket_news where guide_date = '2026-06-10'"
+                ).fetchall()
+                us_rows = conn.execute(
+                    "select symbol, stock_name from us_stock_quotes where quote_date = '2026-06-10'"
+                ).fetchall()
+                notice_rows = conn.execute(
+                    "select stock_code, title from stock_announcements where notice_date = '2026-06-09'"
+                ).fetchall()
+            finally:
+                conn.close()
+
+        self.assertEqual([("cls", "新新闻")], news_rows)
+        self.assertEqual([("NVDA", "英伟达")], us_rows)
+        self.assertEqual([("600002", "新公告")], notice_rows)
 
 
 if __name__ == "__main__":
