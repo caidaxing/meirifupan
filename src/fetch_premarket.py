@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import signal
-from datetime import datetime
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from db import MarketDB
@@ -14,6 +16,9 @@ from generate_premarket import resolve_review_date
 
 
 US_FAMOUS_SECTORS = ["科技类", "汽车能源类", "媒体类", "金融类", "医药食品类", "制造零售类"]
+CLS_ROLL_URL = "https://www.cls.cn/v1/roll/get_roll_list"
+CLS_WEB_VERSION = "8.7.9"
+CHINA_TZ = timezone(timedelta(hours=8))
 
 
 class TimeoutError(RuntimeError):
@@ -113,18 +118,126 @@ def _fallback_title(row: dict[str, Any]) -> str | None:
     return None
 
 
+def _cls_param_string(params: dict[str, Any]) -> str:
+    return "&".join(f"{key}={params[key]}" for key in sorted(params) if params.get(key) is not None)
+
+
+def _cls_sign(params: dict[str, Any]) -> str:
+    digest = hashlib.sha1(_cls_param_string(params).encode("utf-8")).hexdigest()
+    return hashlib.md5(digest.encode("utf-8")).hexdigest()
+
+
+def _datetime_from_epoch(value: Any) -> str | None:
+    timestamp = _num(value)
+    if timestamp is None:
+        return None
+    try:
+        return datetime.fromtimestamp(timestamp, tz=CHINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _title_from_content(content: str | None) -> str | None:
+    if not content:
+        return None
+    text = content.strip()
+    if text.startswith("【") and "】" in text[:80]:
+        title = text[1:text.index("】")].strip()
+        if title:
+            return title[:80]
+    for separator in ["。", "；", ";", "\n"]:
+        if separator in text:
+            text = text.split(separator, 1)[0]
+            break
+    return text[:80].strip() or None
+
+
+def _parse_cls_roll_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    content = _text(item.get("content"))
+    title = _text(item.get("title")) or _title_from_content(content)
+    if not title:
+        return None
+    url = _text(item.get("shareurl"))
+    if not url and item.get("id"):
+        url = f"https://www.cls.cn/detail/{item.get('id')}"
+    return {
+        "source": "cls",
+        "published_at": _datetime_from_epoch(item.get("ctime")),
+        "title": title,
+        "content": content,
+        "url": url,
+        "raw_payload": item,
+    }
+
+
+def fetch_cls_news_records(limit: int = 40) -> list[dict[str, Any]]:
+    """Fetch Cailian Press telegraph news from the current web endpoint."""
+    import requests
+
+    params = {
+        "app": "CailianpressWeb",
+        "last_time": int(time.time()),
+        "os": "web",
+        "refresh_type": 1,
+        "rn": limit,
+        "sv": CLS_WEB_VERSION,
+    }
+    signed_params = {**params, "sign": _cls_sign(params)}
+    response = requests.get(
+        CLS_ROLL_URL,
+        params=signed_params,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+            ),
+            "Referer": "https://www.cls.cn/telegraph",
+        },
+        timeout=12,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("errno") not in (0, "0"):
+        raise RuntimeError(payload.get("msg") or f"财联社接口返回异常: {payload.get('errno')}")
+    records: list[dict[str, Any]] = []
+    for item in payload.get("data", {}).get("roll_data", []):
+        if not isinstance(item, dict):
+            continue
+        record = _parse_cls_roll_item(item)
+        if record:
+            records.append(record)
+        if len(records) >= limit:
+            break
+    return records
+
+
 def fetch_news_records(guide_date: str, limit: int = 40) -> list[dict[str, Any]]:
     """Fetch overnight market news from public AkShare sources."""
     import akshare as ak
 
     sources: list[tuple[str, Callable[[], Any]]] = [
-        ("cls", lambda: ak.stock_info_global_cls(symbol="重点")),
         ("eastmoney", ak.stock_info_global_em),
         ("sina", ak.stock_info_global_sina),
         ("cctv", lambda: ak.news_cctv(date=_ak_date(guide_date))),
     ]
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
+
+    try:
+        for record in fetch_cls_news_records(limit=limit):
+            title = _text(record.get("title"))
+            if not title:
+                continue
+            key = title[:80]
+            if key in seen:
+                continue
+            seen.add(key)
+            records.append(record)
+            if len(records) >= limit:
+                return records
+    except Exception as exc:
+        print(f"  ⚠️  新闻源 cls 失败: {exc}")
+
     for source, fn in sources:
         try:
             rows = _records(call_with_timeout(fn))

@@ -1783,6 +1783,43 @@ class MarketDbTests(unittest.TestCase):
             self.assertEqual("2026-06-03", resolve_hot_trade_date(db, "2026-06-03"))
             db.close()
 
+    def test_cls_sign_matches_current_web_request_algorithm(self):
+        from fetch_premarket import _cls_param_string, _cls_sign
+
+        params = {
+            "rn": 20,
+            "refresh_type": 1,
+            "last_time": 1781066541,
+            "app": "CailianpressWeb",
+            "os": "web",
+            "sv": "8.7.9",
+        }
+
+        self.assertEqual(
+            "app=CailianpressWeb&last_time=1781066541&os=web&refresh_type=1&rn=20&sv=8.7.9",
+            _cls_param_string(params),
+        )
+        self.assertEqual("d4711bcbbaaf39429d9757b09eb44166", _cls_sign(params))
+
+    def test_parse_cls_roll_item_uses_content_when_title_is_blank(self):
+        from fetch_premarket import _parse_cls_roll_item
+
+        record = _parse_cls_roll_item({
+            "id": 2395722,
+            "ctime": 1781066236,
+            "title": "",
+            "content": "财联社6月10日电，韩国KOSPI指数跌超6%，跌破7600点。SK海力士大跌9%。",
+            "shareurl": "https://api3.cls.cn/share/article/2395722?os=web",
+            "level": "B",
+        })
+
+        self.assertIsNotNone(record)
+        self.assertEqual("cls", record["source"])
+        self.assertEqual("2026-06-10 12:37:16", record["published_at"])
+        self.assertEqual("财联社6月10日电，韩国KOSPI指数跌超6%，跌破7600点", record["title"])
+        self.assertIn("SK海力士", record["content"])
+        self.assertIn("2395722", record["url"])
+
 
 if __name__ == "__main__":
     unittest.main()
