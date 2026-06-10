@@ -20,6 +20,7 @@ from fetch_hot import fetch_hot_boards, fetch_hot_stocks
 from fetch_market_overview import fetch_market_overview
 from fetch_missing_data import DEFAULT_DB_PATH, run_collectors
 from fetch_plate_index_daily import fetch_plate_index_daily
+from fetch_ths_hot import fetch_ths_hot_bundle
 from fetch_uplimit import fetch_sentiment_data, fetch_uplimit_data, load_token
 from generate_review import generate_daily_review
 
@@ -239,7 +240,9 @@ def _fetch_hot_stocks(db_path: str, trade_date: str) -> dict[str, int]:
     db = MarketDB(db_path)
     db.init_schema()
     try:
-        return {"hot_stocks": fetch_hot_stocks(db, trade_date)}
+        result = {"hot_stocks": fetch_hot_stocks(db, trade_date)}
+        result.update(fetch_ths_hot_bundle(db, trade_date))
+        return result
     finally:
         db.close()
 

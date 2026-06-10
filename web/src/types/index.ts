@@ -419,6 +419,21 @@ export interface HotStockRank {
   source?: string | null
 }
 
+export interface MultiSourceHotStockRank {
+  rank_no: number
+  stock_code: string
+  stock_name: string | null
+  latest_price: number | null
+  change_pct: number | null
+  hot_value: number | null
+  rank_change: number | null
+  concept_tags: string[]
+  popularity_tag: string | null
+  source: string
+  period: string
+  list_type: string
+}
+
 export interface HotBoardRank {
   rank_no: number
   board_code: string
@@ -437,6 +452,8 @@ export interface HotBoardRank {
 export interface HotData {
   date: string
   hot_stocks: HotStockRank[]
+  ths_hot: MultiSourceHotStockRank[]
+  ths_skyrocket: MultiSourceHotStockRank[]
   concept_boards: HotBoardRank[]
   industry_boards: HotBoardRank[]
 }

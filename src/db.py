@@ -485,6 +485,26 @@ class MarketDB:
                 primary key(trade_date, stock_code)
             );
 
+            create table if not exists stock_hot_ranks (
+                trade_date text not null,
+                source text not null,
+                period text not null,
+                list_type text not null,
+                rank_no integer not null,
+                stock_code text not null,
+                stock_name text,
+                latest_price real,
+                change_pct real,
+                hot_value real,
+                rank_change integer,
+                concept_tags text,
+                popularity_tag text,
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(trade_date, source, period, list_type, stock_code)
+            );
+
             create table if not exists hot_boards (
                 trade_date text not null,
                 board_type text not null,
@@ -507,6 +527,8 @@ class MarketDB:
 
             create index if not exists idx_hot_stocks_date_rank
                 on hot_stocks(trade_date, rank_no);
+            create index if not exists idx_stock_hot_ranks_date_source_rank
+                on stock_hot_ranks(trade_date, source, period, list_type, rank_no);
             create index if not exists idx_hot_boards_date_type_rank
                 on hot_boards(trade_date, board_type, rank_no);
             """
@@ -515,6 +537,7 @@ class MarketDB:
         self._ensure_data_job_columns()
         self._ensure_market_breadth_columns()
         self._ensure_hot_stock_columns()
+        self._ensure_stock_hot_rank_table()
         self._ensure_premarket_columns()
         self.conn.commit()
 
@@ -561,6 +584,34 @@ class MarketDB:
             "source": "text",
             "raw_payload": "text",
         })
+
+    def _ensure_stock_hot_rank_table(self) -> None:
+        """Create multi-source hot-rank table for THS and future providers."""
+        self.conn.executescript(
+            """
+            create table if not exists stock_hot_ranks (
+                trade_date text not null,
+                source text not null,
+                period text not null,
+                list_type text not null,
+                rank_no integer not null,
+                stock_code text not null,
+                stock_name text,
+                latest_price real,
+                change_pct real,
+                hot_value real,
+                rank_change integer,
+                concept_tags text,
+                popularity_tag text,
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(trade_date, source, period, list_type, stock_code)
+            );
+            create index if not exists idx_stock_hot_ranks_date_source_rank
+                on stock_hot_ranks(trade_date, source, period, list_type, rank_no);
+            """
+        )
 
     def _ensure_premarket_columns(self) -> None:
         """Add columns for pre-market guide data when upgrading old databases."""
@@ -1284,6 +1335,74 @@ class MarketDB:
                 (trade_date, r["rank_no"], stock_code, r.get("stock_name"),
                  r.get("latest_price"), r.get("change_pct"), r.get("change_amount"),
                  r.get("amount"), r.get("turnover_rate"), r.get("source"), _json_text(r.get("raw_payload") or r)),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_stock_hot_ranks(
+        self,
+        trade_date: str,
+        records: list[dict[str, Any]],
+        source: str,
+        period: str,
+        list_type: str,
+    ) -> int:
+        """导入多来源个股热榜快照。"""
+        self._upsert_trade_day(trade_date)
+        valid_records = [
+            r for r in records
+            if r.get("stock_code") and r.get("rank_no") is not None
+        ]
+        if valid_records:
+            self.conn.execute(
+                """
+                delete from stock_hot_ranks
+                where trade_date = ? and source = ? and period = ? and list_type = ?
+                """,
+                (trade_date, source, period, list_type),
+            )
+        count = 0
+        for r in valid_records:
+            stock_code = str(r.get("stock_code") or "").strip()
+            stock_name = r.get("stock_name")
+            self._upsert_stock(stock_code, stock_name)
+            self.conn.execute(
+                """
+                insert into stock_hot_ranks(
+                    trade_date, source, period, list_type, rank_no, stock_code, stock_name,
+                    latest_price, change_pct, hot_value, rank_change,
+                    concept_tags, popularity_tag, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(trade_date, source, period, list_type, stock_code) do update set
+                    rank_no = excluded.rank_no,
+                    stock_name = excluded.stock_name,
+                    latest_price = excluded.latest_price,
+                    change_pct = excluded.change_pct,
+                    hot_value = excluded.hot_value,
+                    rank_change = excluded.rank_change,
+                    concept_tags = excluded.concept_tags,
+                    popularity_tag = excluded.popularity_tag,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    trade_date,
+                    source,
+                    period,
+                    list_type,
+                    int(r["rank_no"]),
+                    stock_code,
+                    stock_name,
+                    r.get("latest_price"),
+                    r.get("change_pct"),
+                    r.get("hot_value"),
+                    r.get("rank_change"),
+                    _json_text(r.get("concept_tags") or []),
+                    r.get("popularity_tag"),
+                    _json_text(r.get("raw_payload") or r),
+                ),
             )
             count += 1
         self.conn.commit()

@@ -30,6 +30,7 @@ from server.services.review_queries import (
     get_recent_dates,
     get_saved_review,
     get_seal_quality,
+    get_stock_hot_ranks,
 )
 
 router = APIRouter()
@@ -221,12 +222,16 @@ def get_hot(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
     conn = get_connection()
     try:
         hot_stocks = get_hot_stocks_rank(conn, date, limit=30)
+        ths_hot = get_stock_hot_ranks(conn, date, source="ths_hot", period="day", list_type="normal", limit=30)
+        ths_skyrocket = get_stock_hot_ranks(conn, date, source="ths_hot", period="hour", list_type="skyrocket", limit=30)
         concept_boards = get_hot_boards_rank(conn, date, board_type="concept", limit=20)
         industry_boards = get_hot_boards_rank(conn, date, board_type="industry", limit=20)
 
         return {
             "date": date,
             "hot_stocks": hot_stocks,
+            "ths_hot": ths_hot,
+            "ths_skyrocket": ths_skyrocket,
             "concept_boards": concept_boards,
             "industry_boards": industry_boards,
         }

@@ -552,6 +552,67 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual("eastmoney_hot_rank", row[2])
         self.assertIn('"rank_change": -1', row[3])
 
+    def test_parse_ths_hot_items_maps_tags_and_rank_change(self):
+        from fetch_ths_hot import parse_ths_hot_items
+
+        records = parse_ths_hot_items([
+            {
+                "code": "002361",
+                "name": "神剑股份",
+                "order": 1,
+                "rate": "7364147.0",
+                "rise_and_fall": 9.97,
+                "hot_rank_chg": 2,
+                "tag": {
+                    "concept_tag": ["航空发动机", "卫星导航"],
+                    "popularity_tag": "4天2板",
+                },
+            }
+        ])
+
+        self.assertEqual(1, len(records))
+        self.assertEqual("002361", records[0]["stock_code"])
+        self.assertEqual(7364147.0, records[0]["hot_value"])
+        self.assertEqual(["航空发动机", "卫星导航"], records[0]["concept_tags"])
+        self.assertEqual("4天2板", records[0]["popularity_tag"])
+
+    def test_import_stock_hot_ranks_replaces_same_list_snapshot(self):
+        from db import MarketDB
+        from server.services.review_queries import get_stock_hot_ranks
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_stock_hot_ranks("2026-06-10", [
+                {
+                    "rank_no": 1,
+                    "stock_code": "000001",
+                    "stock_name": "旧热股",
+                    "hot_value": 100,
+                }
+            ], source="ths_hot", period="day", list_type="normal")
+            db.import_stock_hot_ranks("2026-06-10", [
+                {
+                    "rank_no": 1,
+                    "stock_code": "002361",
+                    "stock_name": "神剑股份",
+                    "change_pct": 9.97,
+                    "hot_value": 7364147,
+                    "rank_change": 2,
+                    "concept_tags": ["航空发动机"],
+                    "popularity_tag": "4天2板",
+                }
+            ], source="ths_hot", period="day", list_type="normal")
+
+            rows = get_stock_hot_ranks(db.conn, "2026-06-10", period="day", list_type="normal", limit=10)
+            db.close()
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("002361", rows[0]["stock_code"])
+        self.assertEqual(["航空发动机"], rows[0]["concept_tags"])
+        self.assertEqual("4天2板", rows[0]["popularity_tag"])
+
     def test_market_overview_trend_returns_recent_totals(self):
         from db import MarketDB
         from server.services.review_queries import get_market_overview_trend
