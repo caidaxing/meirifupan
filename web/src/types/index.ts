@@ -39,6 +39,35 @@ export interface HotPlate {
   is_new: boolean
 }
 
+export interface RecentHotPlateStock {
+  stock_code: string
+  stock_name: string
+  active_days: number
+  max_board: number
+  is_today_limit_up: number
+  today_board: number | null
+  today_limit_time: string | null
+  today_reason: string | null
+  max_fengdan_money: number | null
+  total_amount: number | null
+}
+
+export interface RecentHotPlate {
+  plate_code: string
+  plate_name: string
+  best_rank: number
+  active_days: number
+  limit_up_count: number
+  today_limit_up_count: number
+  max_score: number | null
+  stocks: RecentHotPlateStock[]
+}
+
+export interface RecentHotPlatesPayload {
+  dates: string[]
+  plates: RecentHotPlate[]
+}
+
 export interface HighStock {
   stock_code: string
   stock_name: string
@@ -312,6 +341,7 @@ export interface ReviewData {
   saved_review: SavedReview | null
   board_tiers: BoardTier[]
   hot_plates: HotPlate[]
+  recent_hot_plates?: RecentHotPlatesPayload
   high_stocks: HighStock[]
   all_stocks: StockItem[]
   emotion: EmotionData

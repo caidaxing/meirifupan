@@ -282,6 +282,129 @@ html, body {
   line-height: 1.55;
 }
 
+.home-recent-plates {
+  padding: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.home-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.home-section-head h3 {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.home-section-head span,
+.home-section-head strong {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.home-section-head strong {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-plate-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-plate-card {
+  min-width: 0;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.home-plate-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.home-plate-card-head h4 {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.home-plate-card-head span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.home-plate-card-head em {
+  flex-shrink: 0;
+  color: var(--color-blue);
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-plate-stocks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-stock-pill {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: min(100%, 178px);
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.home-stock-pill.active {
+  border-color: color-mix(in srgb, var(--color-red) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--color-red) 9%, var(--bg-secondary));
+}
+
+.home-stock-pill strong,
+.home-stock-pill span,
+.home-stock-pill small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-stock-pill strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.home-stock-pill span {
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.home-stock-pill small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .quantzz-page {
   display: flex;
   flex-direction: column;
@@ -1930,7 +2053,8 @@ html, body {
     grid-template-columns: 1fr;
   }
   .home-chart-grid,
-  .home-action-grid {
+  .home-action-grid,
+  .home-plate-board {
     grid-template-columns: 1fr;
   }
   .quantzz-hero,
@@ -2096,6 +2220,19 @@ html, body {
 
   .home-action-card {
     min-height: 112px;
+  }
+
+  .home-recent-plates {
+    padding: 12px;
+  }
+
+  .home-section-head,
+  .home-plate-card-head {
+    align-items: flex-start;
+  }
+
+  .home-stock-pill {
+    min-width: 100%;
   }
 
   .quantzz-hero {

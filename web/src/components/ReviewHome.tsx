@@ -1,4 +1,4 @@
-import type { EmotionTrendItem, MarketOverviewTrendItem, ReviewData } from '../types'
+import type { EmotionTrendItem, MarketOverviewTrendItem, RecentHotPlate, RecentHotPlateStock, ReviewData } from '../types'
 import type { TabKey } from './TabBar'
 import { EmotionCycleChart } from './EmotionCycleChart'
 import { VolumeTrendChart } from './VolumeTrendChart'
@@ -74,6 +74,7 @@ export function ReviewHome({ data, emotionTrend, marketTrend, onOpenTab }: Props
   const broken = latestHasEvents ? latestMarket?.broken_limit_up_count ?? data.market_environment.broken_limit_up_total : data.market_environment.broken_limit_up_total
   const highBoard = latestHasEvents ? latestMarket?.highest_board ?? data.limit_up_stats.highest_board : data.limit_up_stats.highest_board
   const hotSummary = data.saved_review?.hot_stock_summary
+  const recentHot = data.recent_hot_plates
 
   return (
     <div className="home-page">
@@ -124,6 +125,8 @@ export function ReviewHome({ data, emotionTrend, marketTrend, onOpenTab }: Props
         </div>
       </section>
 
+      <RecentHotPlateBoard dates={recentHot?.dates ?? []} plates={recentHot?.plates ?? []} />
+
       <section className="home-action-grid">
         <ActionCard
           title="盘前指引"
@@ -162,6 +165,75 @@ export function ReviewHome({ data, emotionTrend, marketTrend, onOpenTab }: Props
           onClick={() => onOpenTab('data-overview')}
         />
       </section>
+    </div>
+  )
+}
+
+function RecentHotPlateBoard({ dates, plates }: { dates: string[]; plates: RecentHotPlate[] }) {
+  if (plates.length === 0) {
+    return (
+      <section className="home-recent-plates">
+        <div className="home-section-head">
+          <div>
+            <h3>近5日热门板块</h3>
+            <span>暂无可用板块数据</span>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="home-recent-plates">
+      <div className="home-section-head">
+        <div>
+          <h3>近5日热门板块和前排股</h3>
+          <span>{dates[0]} 至 {dates[dates.length - 1]}</span>
+        </div>
+        <strong>{plates.length} 个板块</strong>
+      </div>
+      <div className="home-plate-board">
+        {plates.map(plate => (
+          <RecentHotPlateCard key={plate.plate_code} plate={plate} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function RecentHotPlateCard({ plate }: { plate: RecentHotPlate }) {
+  return (
+    <article className="home-plate-card">
+      <div className="home-plate-card-head">
+        <div>
+          <h4>{plate.plate_name}</h4>
+          <span>
+            活跃 {plate.active_days} 天 · 涨停 {plate.limit_up_count} 次 · 今日 {plate.today_limit_up_count} 只
+          </span>
+        </div>
+        <em>#{plate.best_rank}</em>
+      </div>
+      <div className="home-plate-stocks">
+        {plate.stocks.map(stock => (
+          <RecentHotStockPill key={stock.stock_code} stock={stock} />
+        ))}
+      </div>
+    </article>
+  )
+}
+
+function RecentHotStockPill({ stock }: { stock: RecentHotPlateStock }) {
+  const board = stock.today_board ?? stock.max_board
+  return (
+    <div className={`home-stock-pill ${stock.is_today_limit_up ? 'active' : ''}`}>
+      <div>
+        <strong>{stock.stock_name}</strong>
+        <span>{stock.stock_code}</span>
+      </div>
+      <small>
+        {board > 1 ? `${board}板` : '首板'}
+        {stock.active_days > 1 ? ` · ${stock.active_days}日` : ''}
+      </small>
     </div>
   )
 }

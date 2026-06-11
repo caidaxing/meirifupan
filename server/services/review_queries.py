@@ -308,6 +308,83 @@ def get_hot_plates(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
     return result
 
 
+def get_recent_hot_plates_with_stocks(
+    conn: sqlite3.Connection,
+    date: str,
+    days: int = 5,
+    plate_limit: int = 12,
+    stock_limit: int = 8,
+) -> dict[str, Any]:
+    """Return recent hot plates and their front stocks for the review home."""
+    recent_dates = get_recent_dates(conn, date, days)
+    if not recent_dates:
+        return {"dates": [], "plates": []}
+
+    placeholders = ",".join("?" for _ in recent_dates)
+    plate_rows = conn.execute(
+        f"""
+        SELECT
+            r.plate_code,
+            COALESCE(MAX(r.plate_name), r.plate_code) as plate_name,
+            MIN(r.rank_no) as best_rank,
+            COUNT(DISTINCT r.trade_date) as active_days,
+            SUM(COALESCE(day_counts.limit_up_count, 0)) as limit_up_count,
+            SUM(CASE WHEN r.trade_date = ? THEN COALESCE(day_counts.limit_up_count, 0) ELSE 0 END) as today_limit_up_count,
+            MAX(COALESCE(r.score, 0)) as max_score
+        FROM plate_hot_rank r
+        LEFT JOIN (
+            SELECT trade_date, plate_code, COUNT(DISTINCT stock_code) as limit_up_count
+            FROM limit_up_plate_map
+            WHERE trade_date IN ({placeholders})
+            GROUP BY trade_date, plate_code
+        ) day_counts
+          ON day_counts.trade_date = r.trade_date AND day_counts.plate_code = r.plate_code
+        WHERE r.trade_date IN ({placeholders})
+          AND r.source = 'uplimit_hot'
+        GROUP BY r.plate_code
+        ORDER BY active_days DESC, today_limit_up_count DESC, limit_up_count DESC, best_rank ASC
+        LIMIT ?
+        """,
+        (date, *recent_dates, *recent_dates, plate_limit),
+    ).fetchall()
+
+    plates: list[dict[str, Any]] = []
+    for plate_row in plate_rows:
+        plate = _row_to_dict(plate_row)
+        stock_rows = conn.execute(
+            f"""
+            SELECT
+                e.stock_code,
+                COALESCE(MAX(e.stock_name), e.stock_code) as stock_name,
+                COUNT(DISTINCT e.trade_date) as active_days,
+                MAX(COALESCE(e.up_limit_keep_times, 1)) as max_board,
+                SUM(CASE WHEN e.trade_date = ? THEN 1 ELSE 0 END) as is_today_limit_up,
+                MAX(CASE WHEN e.trade_date = ? THEN e.up_limit_keep_times ELSE NULL END) as today_board,
+                MAX(CASE WHEN e.trade_date = ? THEN e.up_limit_time ELSE NULL END) as today_limit_time,
+                MAX(CASE WHEN e.trade_date = ? THEN e.reason ELSE NULL END) as today_reason,
+                MAX(COALESCE(e.fengdan_money, 0)) as max_fengdan_money,
+                SUM(COALESCE(e.amount, 0)) as total_amount
+            FROM limit_up_plate_map m
+            JOIN limit_up_events e
+              ON e.trade_date = m.trade_date AND e.stock_code = m.stock_code
+            WHERE m.plate_code = ?
+              AND m.trade_date IN ({placeholders})
+            GROUP BY e.stock_code
+            ORDER BY is_today_limit_up DESC, max_board DESC, active_days DESC,
+                     max_fengdan_money DESC, today_limit_time ASC
+            LIMIT ?
+            """,
+            (date, date, date, date, plate["plate_code"], *recent_dates, stock_limit),
+        ).fetchall()
+        plate["stocks"] = _rows_to_list(stock_rows)
+        plates.append(plate)
+
+    return {
+        "dates": sorted(recent_dates),
+        "plates": plates,
+    }
+
+
 def get_high_stocks(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
     """Get high stocks: multi-board (>=2) or top fengdan money."""
     stocks = conn.execute(

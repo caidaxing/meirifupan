@@ -26,6 +26,7 @@ from server.services.review_queries import (
     get_latest_premarket_guide,
     get_premarket_guide,
     get_quantzz_daily_overview,
+    get_recent_hot_plates_with_stocks,
     get_connection,
     get_recent_dates,
     get_saved_review,
@@ -55,6 +56,7 @@ def get_review(date: str = Query(..., description="Trade date, e.g. 2026-06-03")
         high_stocks = get_high_stocks(conn, date)
         all_stocks = get_all_stocks(conn, date)
         market_environment = get_market_environment(conn, date)
+        recent_hot_plates = get_recent_hot_plates_with_stocks(conn, date, days=5)
         saved_review = get_saved_review(conn, date)
         emotion = compute_emotion(conn, date, stats=stats, indices=indices)
 
@@ -66,6 +68,7 @@ def get_review(date: str = Query(..., description="Trade date, e.g. 2026-06-03")
             "saved_review": saved_review,
             "board_tiers": board_tiers,
             "hot_plates": hot_plates,
+            "recent_hot_plates": recent_hot_plates,
             "high_stocks": high_stocks,
             "all_stocks": all_stocks,
             "emotion": emotion,

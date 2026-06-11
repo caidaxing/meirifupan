@@ -1853,6 +1853,84 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual("芯片", saved["plate_reviews"][0]["plate_name"])
         self.assertIn("核心板块复盘", markdown)
 
+    def test_recent_hot_plates_include_five_day_front_stocks(self):
+        from db import MarketDB
+        from server.services.review_queries import get_recent_hot_plates_with_stocks
+
+        def day(trade_date: str, plate_code: str, plate_name: str, stocks: list[dict]) -> dict:
+            return {
+                "date": trade_date,
+                "uplimit_reason": [
+                    {
+                        "plate_code": plate_code,
+                        "plate_name": plate_name,
+                        "plate_score": 100,
+                        "stocks": stocks,
+                    }
+                ],
+                "uplimit_hot": [[plate_name, plate_code, 100]],
+                "plate_rank": [],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_uplimit_day(day("2026-06-03", "801001", "芯片", [
+                {
+                    "stock_code": "002918",
+                    "stock_name": "蒙娜丽莎",
+                    "up_limit_keep_times": 1,
+                    "up_limit_time": "10:01",
+                    "fengdan_money": 20_000_000,
+                    "reason": "芯片启动",
+                }
+            ]), raw_source="unit-test")
+            db.import_uplimit_day(day("2026-06-04", "801001", "芯片", [
+                {
+                    "stock_code": "002918",
+                    "stock_name": "蒙娜丽莎",
+                    "up_limit_keep_times": 2,
+                    "up_limit_time": "09:40",
+                    "fengdan_money": 60_000_000,
+                    "reason": "芯片连板",
+                },
+                {
+                    "stock_code": "300001",
+                    "stock_name": "芯片中军",
+                    "up_limit_keep_times": 1,
+                    "up_limit_time": "10:10",
+                    "fengdan_money": 18_000_000,
+                    "reason": "芯片扩散",
+                },
+            ]), raw_source="unit-test")
+            db.import_uplimit_day(day("2026-06-05", "801002", "机器人", [
+                {
+                    "stock_code": "600001",
+                    "stock_name": "机器人A",
+                    "up_limit_keep_times": 3,
+                    "up_limit_time": "09:31",
+                    "fengdan_money": 90_000_000,
+                    "reason": "机器人核心",
+                }
+            ]), raw_source="unit-test")
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            result = get_recent_hot_plates_with_stocks(conn, "2026-06-05", days=5, plate_limit=10, stock_limit=5)
+            conn.close()
+
+        self.assertEqual(["2026-06-03", "2026-06-04", "2026-06-05"], result["dates"])
+        self.assertEqual("芯片", result["plates"][0]["plate_name"])
+        self.assertEqual(2, result["plates"][0]["active_days"])
+        self.assertEqual(3, result["plates"][0]["limit_up_count"])
+        self.assertEqual("蒙娜丽莎", result["plates"][0]["stocks"][0]["stock_name"])
+        self.assertEqual(2, result["plates"][0]["stocks"][0]["active_days"])
+        self.assertEqual(2, result["plates"][0]["stocks"][0]["max_board"])
+        self.assertEqual("机器人", result["plates"][1]["plate_name"])
+        self.assertEqual("机器人A", result["plates"][1]["stocks"][0]["stock_name"])
+
     def test_derive_review_data_populates_local_summary_tables(self):
         from db import MarketDB
         from derive_review_data import derive_review_data
