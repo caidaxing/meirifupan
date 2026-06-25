@@ -1,0 +1,13 @@
+# Legacy local settings template.
+# Current collectors mainly use environment variables and token JSON files.
+
+quant:
+  email: "your-email@example.com"
+  password: "replace-with-local-password"
+
+data:
+  dir: "data"
+  format: "sqlite"
+
+scraper:
+  lookback_days: 15

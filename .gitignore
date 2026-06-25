@@ -15,7 +15,11 @@ logs/
 .run/
 
 # Sensitive config
+.env
+.env.*
+!.env.example
 config/token.json
+config/quantzz_token.json
 config/settings.yaml
 config/*.bak.*
 

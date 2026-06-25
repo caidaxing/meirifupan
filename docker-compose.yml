@@ -4,31 +4,37 @@ services:
   app:
     build: .
     ports:
-      - "8765:8765"
+      - "${PORT:-8765}:8765"
     volumes:
       - ./data:/app/data
       - ./config:/app/config
     environment:
-      - DB_PATH=/app/data/market_review.db
-      - TZ=Asia/Shanghai
+      - DB_PATH=${DB_PATH:-/app/data/market_review.db}
+      - TZ=${TZ:-Asia/Shanghai}
+      - QUANTZZ_API_BASE=${QUANTZZ_API_BASE:-https://api.zizizaizai.com}
       - QUANTZZ_TOKEN=${QUANTZZ_TOKEN:-}
+      - QUANTZZ_TOKEN_FILE=${QUANTZZ_TOKEN_FILE:-/app/config/quantzz_token.json}
       - QUANTZZ_EMAIL=${QUANTZZ_EMAIL:-}
       - QUANTZZ_PASSWORD=${QUANTZZ_PASSWORD:-}
     restart: unless-stopped
 
   scheduler:
     build: .
-    command: python src/daily_scheduler.py --db /app/data/market_review.db
+    command: python src/daily_scheduler.py --db ${DB_PATH:-/app/data/market_review.db}
     volumes:
       - ./data:/app/data
       - ./config:/app/config
       - ./reports:/app/reports
     environment:
-      - DB_PATH=/app/data/market_review.db
-      - TZ=Asia/Shanghai
-      - DAILY_UPDATE_AT=17:30
-      - DAILY_KLINE_LIMIT=30
+      - DB_PATH=${DB_PATH:-/app/data/market_review.db}
+      - TZ=${TZ:-Asia/Shanghai}
+      - DAILY_UPDATE_AT=${DAILY_UPDATE_AT:-17:30}
+      - PREMARKET_UPDATE_AT=${PREMARKET_UPDATE_AT:-08:30}
+      - DAILY_KLINE_LIMIT=${DAILY_KLINE_LIMIT:-30}
+      - DAILY_UPDATE_FORCE=${DAILY_UPDATE_FORCE:-0}
+      - QUANTZZ_API_BASE=${QUANTZZ_API_BASE:-https://api.zizizaizai.com}
       - QUANTZZ_TOKEN=${QUANTZZ_TOKEN:-}
+      - QUANTZZ_TOKEN_FILE=${QUANTZZ_TOKEN_FILE:-/app/config/quantzz_token.json}
       - QUANTZZ_EMAIL=${QUANTZZ_EMAIL:-}
       - QUANTZZ_PASSWORD=${QUANTZZ_PASSWORD:-}
     restart: unless-stopped

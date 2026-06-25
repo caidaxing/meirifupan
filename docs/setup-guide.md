@@ -7,6 +7,8 @@
 
 ## 第一步：获取 Token
 
+详细配置清单见 [`docs/configuration.md`](configuration.md)。真实账号、密码、token 不要提交到 Git。
+
 1. 浏览器打开数据平台
 2. 登录账号
 3. 打开开发者工具（F12）→ Application → Local Storage
@@ -129,6 +131,25 @@ DAILY_UPDATE_AT=18:00 PREMARKET_UPDATE_AT=08:45 scripts/auto_review.sh schedule
 logs/auto_update.log
 logs/data_server.log
 logs/daily_scheduler.log
+```
+
+## Docker/服务器配置
+
+复制模板后再填真实配置：
+
+```bash
+cp .env.example .env
+cp config/token.example.json config/token.json
+cp config/quantzz_token.example.json config/quantzz_token.json
+```
+
+`docker-compose.yml` 会读取 `.env`。常用配置包括：
+
+```text
+PORT=8765
+DAILY_UPDATE_AT=17:30
+PREMARKET_UPDATE_AT=08:30
+QUANTZZ_TOKEN_FILE=/app/config/quantzz_token.json
 ```
 
 ## 代码同步
