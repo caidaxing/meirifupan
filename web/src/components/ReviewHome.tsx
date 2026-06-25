@@ -1,12 +1,25 @@
-import type { EmotionTrendItem, MarketOverviewTrendItem, RecentHotPlate, RecentHotPlateStock, ReviewData } from '../types'
+import { useEffect, useMemo, useState } from 'react'
+import { fetchPlateRotation } from '../api/client'
+import type {
+  EmotionTrendItem,
+  MarketOverviewTrendItem,
+  PlateRotationData,
+  PlateRotationRankItem,
+  PlateRotationSelectedPlate,
+  RecentHotPlate,
+  RecentHotPlateStock,
+  ReviewData,
+} from '../types'
 import type { TabKey } from './TabBar'
 import { EmotionCycleChart } from './EmotionCycleChart'
+import { ExpandableText } from './ExpandableText'
 import { VolumeTrendChart } from './VolumeTrendChart'
 
 interface Props {
   data: ReviewData
   emotionTrend: EmotionTrendItem[]
   marketTrend: MarketOverviewTrendItem[]
+  plateRotation?: PlateRotationData | null
   onOpenTab: (tab: TabKey) => void
 }
 
@@ -23,6 +36,15 @@ function fmtSigned(value: number | null | undefined) {
 function fmtPct(value: number | null | undefined) {
   if (value == null) return '-'
   return `${value.toFixed(1)}%`
+}
+
+function fmtScore(value: number | null | undefined) {
+  if (value == null) return '-'
+  return Math.round(value).toLocaleString('zh-CN')
+}
+
+function fmtShortDate(value: string) {
+  return value.slice(5).replace('-', '/')
 }
 
 function trendWord(value: number | null | undefined) {
@@ -65,7 +87,21 @@ function buildConclusion(data: ReviewData, latestMarket?: MarketOverviewTrendIte
   return `量能 ${amountText}，${trendWord(latestMarket?.amount_change_pct)}，红盘率 ${fmtPct(upRate)}。情绪 ${tone}，先看涨停数量和连板高度能否继续修复。`
 }
 
-export function ReviewHome({ data, emotionTrend, marketTrend, onOpenTab }: Props) {
+function buildRotationSummary(plate: PlateRotationSelectedPlate | null | undefined, rank?: PlateRotationRankItem) {
+  if (!plate) return '暂无题材详情'
+  const latest = plate.trend.at(-1)
+  const prev = plate.trend.at(-2)
+  const rate = latest?.rate ?? rank?.rate
+  const score = latest?.score ?? rank?.score
+  if (latest?.score != null && prev?.score != null) {
+    const diff = latest.score - prev.score
+    const word = diff >= 0 ? '升温' : '降温'
+    return `强度 ${fmtScore(score)}，涨幅 ${fmtSigned(rate)}，较前一日${word} ${fmtScore(Math.abs(diff))}。`
+  }
+  return `强度 ${fmtScore(score)}，涨幅 ${fmtSigned(rate)}。`
+}
+
+export function ReviewHome({ data, emotionTrend, marketTrend, plateRotation, onOpenTab }: Props) {
   const latestMarket = marketTrend.at(-1)
   const prevMarket = marketTrend.at(-2)
   const amountChange = latestMarket?.amount_change_pct
@@ -125,6 +161,8 @@ export function ReviewHome({ data, emotionTrend, marketTrend, onOpenTab }: Props
         </div>
       </section>
 
+      <PlateRotationBoard data={plateRotation} />
+
       <RecentHotPlateBoard dates={recentHot?.dates ?? []} plates={recentHot?.plates ?? []} />
 
       <section className="home-action-grid">
@@ -166,6 +204,173 @@ export function ReviewHome({ data, emotionTrend, marketTrend, onOpenTab }: Props
         />
       </section>
     </div>
+  )
+}
+
+function findRankForPlate(data: PlateRotationData | null, plateCode?: string | null) {
+  if (!data || !plateCode) return undefined
+  for (const day of [...data.dates].reverse()) {
+    const found = data.rank_by_date[day]?.find(item => item.plate_code === plateCode)
+    if (found) return found
+  }
+  return undefined
+}
+
+function PlateRotationBoard({ data }: { data?: PlateRotationData | null }) {
+  const [view, setView] = useState<PlateRotationData | null>(data ?? null)
+  const [loadingCode, setLoadingCode] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setView(data ?? null)
+    setLoadingCode(null)
+    setError(null)
+  }, [data])
+
+  const selected = view?.selected_plate ?? null
+  const selectedRank = useMemo(() => findRankForPlate(view, selected?.plate_code), [view, selected?.plate_code])
+  const displayDates = useMemo(() => (view ? [...view.dates].reverse() : []), [view])
+  const trend = selected?.trend.slice(-6) ?? []
+  const maxScore = Math.max(1, ...trend.map(item => Math.abs(item.score ?? 0)))
+
+  if (!view || view.dates.length === 0) {
+    return (
+      <section className="home-rotation">
+        <div className="home-section-head">
+          <div>
+            <h3>题材轮动</h3>
+            <span>暂无可用数据</span>
+          </div>
+        </div>
+        <div className="home-empty-inline">等自动更新跑完后，这里会展示最近几天的题材强度、核心股和爆发原因。</div>
+      </section>
+    )
+  }
+
+  const openPlate = (plateCode: string) => {
+    if (plateCode === selected?.plate_code || loadingCode) return
+    setLoadingCode(plateCode)
+    setError(null)
+    fetchPlateRotation(view.date, view.dates.length || 8, 12, plateCode)
+      .then(next => setView(next))
+      .catch(e => setError(e.message ?? '题材详情加载失败'))
+      .finally(() => setLoadingCode(null))
+  }
+
+  return (
+    <section className="home-rotation">
+      <div className="home-section-head">
+        <div>
+          <h3>题材轮动</h3>
+          <span>{view.dates[0]} 至 {view.dates.at(-1)} · 资金强度榜</span>
+        </div>
+        <strong>{selected?.plate_name ?? '未选择'}</strong>
+      </div>
+
+      <div className="home-rotation-layout">
+        <div className="home-rotation-scroll" aria-label="题材轮动排名">
+          <div className="home-rotation-days">
+            {displayDates.map(day => {
+              const items = view.rank_by_date[day] ?? []
+              return (
+                <div className="home-rotation-day" key={day}>
+                  <div className="home-rotation-day-head">
+                    <strong>{fmtShortDate(day)}</strong>
+                    <span>Top {items.length}</span>
+                  </div>
+                  <div className="home-rotation-list">
+                    {items.slice(0, 10).map(item => (
+                      <button
+                        type="button"
+                        className={`home-rotation-item ${item.plate_code === selected?.plate_code ? 'active' : ''}`}
+                        key={`${day}-${item.plate_code}`}
+                        onClick={() => openPlate(item.plate_code)}
+                      >
+                        <span className="home-rotation-rank">#{item.rank_no}</span>
+                        <span className="home-rotation-name">{item.plate_name}</span>
+                        <span className={item.rate != null && item.rate < 0 ? 'text-green' : 'text-red'}>
+                          {fmtSigned(item.rate)}
+                        </span>
+                        <small>{loadingCode === item.plate_code ? '加载中' : fmtScore(item.score)}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <aside className="home-rotation-detail">
+          {selected ? (
+            <>
+              <div className="home-rotation-detail-head">
+                <div>
+                  <h4>{selected.plate_name}</h4>
+                  <span>{selected.plate_code}</span>
+                </div>
+                <strong>{fmtSigned(selectedRank?.rate ?? trend.at(-1)?.rate)}</strong>
+              </div>
+              <p className="home-rotation-summary">{buildRotationSummary(selected, selectedRank)}</p>
+              {error && <div className="home-rotation-error">{error}</div>}
+
+              <div className="home-rotation-mini-trend">
+                {trend.map(item => (
+                  <div className="home-rotation-trend-row" key={`${selected.plate_code}-${item.trade_date}`}>
+                    <span>{fmtShortDate(item.trade_date)}</span>
+                    <div>
+                      <i
+                        className={item.rate != null && item.rate < 0 ? 'down' : 'up'}
+                        style={{ width: `${Math.max(6, Math.min(100, Math.abs(item.score ?? 0) / maxScore * 100))}%` }}
+                      />
+                    </div>
+                    <strong>{fmtScore(item.score)}</strong>
+                  </div>
+                ))}
+              </div>
+
+              <div className="home-rotation-detail-grid">
+                <div className="home-rotation-block">
+                  <h5>核心个股</h5>
+                  <div className="home-rotation-stocks">
+                    {selected.stocks.slice(0, 8).map(stock => (
+                      <div className="home-rotation-stock" key={`${stock.trade_date}-${stock.stock_code}`}>
+                        <div>
+                          <strong>{stock.stock_name}</strong>
+                          <span>{stock.stock_code}</span>
+                        </div>
+                        <small className={stock.change_pct != null && stock.change_pct < 0 ? 'text-green' : 'text-red'}>
+                          {fmtSigned(stock.change_pct)}
+                        </small>
+                      </div>
+                    ))}
+                    {selected.stocks.length === 0 && <span className="home-empty-mini">暂无核心股</span>}
+                  </div>
+                </div>
+
+                <div className="home-rotation-block">
+                  <h5>爆发原因</h5>
+                  <div className="home-rotation-reasons">
+                    {selected.reasons.slice(0, 4).map(reason => (
+                      <article className="home-rotation-reason" key={`${reason.date}-${reason.msg_id}`}>
+                        <div className="home-rotation-reason-head">
+                          <strong>{reason.title || '题材异动'}</strong>
+                          <span>{reason.date}</span>
+                        </div>
+                        <ExpandableText text={reason.boomreason} lines={2} emptyText="暂无原因" />
+                      </article>
+                    ))}
+                    {selected.reasons.length === 0 && <span className="home-empty-mini">暂无原因明细</span>}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="home-empty-inline">选择一个题材后查看趋势、核心股和原因。</div>
+          )}
+        </aside>
+      </div>
+    </section>
   )
 }
 

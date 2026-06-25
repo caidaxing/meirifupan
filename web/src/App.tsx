@@ -34,7 +34,7 @@ export default function App() {
     }
   }, [effectiveDate, date])
 
-  const { data, trend, marketTrend, loading, error } = useReview(effectiveDate)
+  const { data, trend, marketTrend, plateRotation, loading, error } = useReview(effectiveDate)
   const { data: insights, loading: insightLoading } = useInsights(effectiveDate)
   const hotDate = hotDates.includes(effectiveDate) ? effectiveDate : hotDates[0] ?? ''
   const { data: hotData, loading: hotLoading, error: hotError } = useHot(tab === 'emotion-review' ? hotDate : '')
@@ -75,7 +75,13 @@ export default function App() {
       <TabBar active={tab} onChange={setTab} />
       <div className="tab-content">
         {tab === 'review-home' && data && (
-          <ReviewHome data={data} emotionTrend={trend} marketTrend={marketTrend} onOpenTab={setTab} />
+          <ReviewHome
+            data={data}
+            emotionTrend={trend}
+            marketTrend={marketTrend}
+            plateRotation={plateRotation}
+            onOpenTab={setTab}
+          />
         )}
         {tab === 'premarket-guide' && (
           <PremarketGuideView data={premarketGuide} loading={premarketLoading} error={premarketError} />

@@ -437,6 +437,83 @@ class MarketDB:
                 updated_at text not null default current_timestamp
             );
 
+            create table if not exists plate_rotation_rank (
+                trade_date text not null,
+                plate_code text not null,
+                plate_name text,
+                rank_no integer not null,
+                rate real,
+                score real,
+                speed real,
+                money_leader real,
+                money_leader_buy real,
+                money_leader_sell real,
+                trade_money real,
+                volume_ration real,
+                source text not null default 'quant_yjj',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(trade_date, plate_code, source)
+            );
+
+            create table if not exists plate_rotation_trend (
+                plate_code text not null,
+                trade_date text not null,
+                plate_name text,
+                rate real,
+                score real,
+                speed real,
+                money_leader real,
+                money_leader_buy real,
+                money_leader_sell real,
+                trade_money real,
+                volume_ration real,
+                source text not null default 'quant_yjj',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(plate_code, trade_date, source)
+            );
+
+            create table if not exists plate_rotation_reasons (
+                plate_code text not null,
+                reason_date text not null,
+                msg_id text not null,
+                plate_name text,
+                title text,
+                boomreason text,
+                is_boom integer,
+                limit_up_count integer,
+                strength_score real,
+                leader_info text,
+                source text not null default 'quant_yjj',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(plate_code, reason_date, msg_id, source)
+            );
+
+            create table if not exists plate_rotation_stocks (
+                trade_date text not null,
+                plate_code text not null,
+                stock_code text not null,
+                stock_name text,
+                rank_no integer,
+                rank_diff integer,
+                change_pct real,
+                high_change_pct real,
+                open_change_pct real,
+                turnover_ratio real,
+                volume_ratio real,
+                circulation_value real,
+                source text not null default 'quant_yjj',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(trade_date, plate_code, stock_code, source)
+            );
+
             create index if not exists idx_limit_up_events_date_time
                 on limit_up_events(trade_date, up_limit_time);
             create index if not exists idx_limit_up_plate_map_date_plate
@@ -467,6 +544,12 @@ class MarketDB:
                 on stock_announcements(notice_date);
             create index if not exists idx_us_stock_quotes_date
                 on us_stock_quotes(quote_date, change_pct);
+            create index if not exists idx_plate_rotation_rank_date_rank
+                on plate_rotation_rank(trade_date, source, rank_no);
+            create index if not exists idx_plate_rotation_trend_plate_date
+                on plate_rotation_trend(plate_code, source, trade_date);
+            create index if not exists idx_plate_rotation_stocks_plate_date_rank
+                on plate_rotation_stocks(trade_date, plate_code, source, rank_no);
 
             create table if not exists hot_stocks (
                 trade_date text not null,
@@ -539,6 +622,7 @@ class MarketDB:
         self._ensure_hot_stock_columns()
         self._ensure_stock_hot_rank_table()
         self._ensure_premarket_columns()
+        self._ensure_plate_rotation_tables()
         self.conn.commit()
 
     def _ensure_table_columns(self, table_name: str, columns: dict[str, str]) -> None:
@@ -628,6 +712,92 @@ class MarketDB:
             "raw_payload": "text",
         })
 
+    def _ensure_plate_rotation_tables(self) -> None:
+        """Create plate rotation tables when upgrading deployed databases."""
+        self.conn.executescript(
+            """
+            create table if not exists plate_rotation_rank (
+                trade_date text not null,
+                plate_code text not null,
+                plate_name text,
+                rank_no integer not null,
+                rate real,
+                score real,
+                speed real,
+                money_leader real,
+                money_leader_buy real,
+                money_leader_sell real,
+                trade_money real,
+                volume_ration real,
+                source text not null default 'quant_yjj',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(trade_date, plate_code, source)
+            );
+            create table if not exists plate_rotation_trend (
+                plate_code text not null,
+                trade_date text not null,
+                plate_name text,
+                rate real,
+                score real,
+                speed real,
+                money_leader real,
+                money_leader_buy real,
+                money_leader_sell real,
+                trade_money real,
+                volume_ration real,
+                source text not null default 'quant_yjj',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(plate_code, trade_date, source)
+            );
+            create table if not exists plate_rotation_reasons (
+                plate_code text not null,
+                reason_date text not null,
+                msg_id text not null,
+                plate_name text,
+                title text,
+                boomreason text,
+                is_boom integer,
+                limit_up_count integer,
+                strength_score real,
+                leader_info text,
+                source text not null default 'quant_yjj',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(plate_code, reason_date, msg_id, source)
+            );
+            create table if not exists plate_rotation_stocks (
+                trade_date text not null,
+                plate_code text not null,
+                stock_code text not null,
+                stock_name text,
+                rank_no integer,
+                rank_diff integer,
+                change_pct real,
+                high_change_pct real,
+                open_change_pct real,
+                turnover_ratio real,
+                volume_ratio real,
+                circulation_value real,
+                source text not null default 'quant_yjj',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                primary key(trade_date, plate_code, stock_code, source)
+            );
+            create index if not exists idx_plate_rotation_rank_date_rank
+                on plate_rotation_rank(trade_date, source, rank_no);
+            create index if not exists idx_plate_rotation_trend_plate_date
+                on plate_rotation_trend(plate_code, source, trade_date);
+            create index if not exists idx_plate_rotation_stocks_plate_date_rank
+                on plate_rotation_stocks(trade_date, plate_code, source, rank_no);
+            """
+        )
+
 
     def import_uplimit_day(self, day_data: dict[str, Any], raw_source: str = "json") -> None:
         trade_date = day_data["date"]
@@ -706,6 +876,221 @@ class MarketDB:
             )
 
         self.conn.commit()
+
+    def import_plate_rotation_data(self, data: dict[str, Any], raw_source: str = "quant_yjj") -> dict[str, int]:
+        """Import normalized plate rotation data."""
+        counts = {
+            "rank": 0,
+            "trend": 0,
+            "reasons": 0,
+            "stocks": 0,
+        }
+
+        for trade_date in data.get("dates") or []:
+            self._upsert_trade_day(str(trade_date))
+
+        rank_by_date = data.get("ranks") or {}
+        for trade_date, rows in rank_by_date.items():
+            self._upsert_trade_day(str(trade_date))
+            self._store_raw_response(
+                trade_date=str(trade_date),
+                source=raw_source,
+                endpoint="plate_rotation_rank",
+                params={"date": trade_date},
+                payload=rows,
+            )
+            for fallback_rank, item in enumerate(rows or [], start=1):
+                plate_code = str(item.get("plate_code") or "")
+                if not plate_code:
+                    continue
+                plate_name = item.get("plate_name")
+                self._upsert_plate(plate_code, plate_name)
+                self.conn.execute(
+                    """
+                    insert into plate_rotation_rank(
+                        trade_date, plate_code, plate_name, rank_no, rate, score, speed,
+                        money_leader, money_leader_buy, money_leader_sell,
+                        trade_money, volume_ration, source, raw_payload
+                    )
+                    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    on conflict(trade_date, plate_code, source) do update set
+                        plate_name = excluded.plate_name,
+                        rank_no = excluded.rank_no,
+                        rate = excluded.rate,
+                        score = excluded.score,
+                        speed = excluded.speed,
+                        money_leader = excluded.money_leader,
+                        money_leader_buy = excluded.money_leader_buy,
+                        money_leader_sell = excluded.money_leader_sell,
+                        trade_money = excluded.trade_money,
+                        volume_ration = excluded.volume_ration,
+                        raw_payload = excluded.raw_payload,
+                        updated_at = current_timestamp
+                    """,
+                    (
+                        str(trade_date),
+                        plate_code,
+                        plate_name,
+                        item.get("rank_no") or item.get("rank") or fallback_rank,
+                        item.get("rate"),
+                        item.get("score") or item.get("sum_score"),
+                        item.get("speed"),
+                        item.get("money_leader") or item.get("sum_leader_money"),
+                        item.get("money_leader_buy"),
+                        item.get("money_leader_sell"),
+                        item.get("trade_money"),
+                        item.get("volume_ration") or item.get("volume_ratio"),
+                        raw_source,
+                        _json_text(item),
+                    ),
+                )
+                counts["rank"] += 1
+
+        for plate_code, rows in (data.get("trends") or {}).items():
+            for item in rows or []:
+                trade_date = str(item.get("date1") or item.get("trade_date") or "")
+                code = str(item.get("plate_code") or plate_code or "")
+                if not code or not trade_date:
+                    continue
+                plate_name = item.get("plate_name")
+                self._upsert_trade_day(trade_date)
+                self._upsert_plate(code, plate_name)
+                self.conn.execute(
+                    """
+                    insert into plate_rotation_trend(
+                        plate_code, trade_date, plate_name, rate, score, speed,
+                        money_leader, money_leader_buy, money_leader_sell,
+                        trade_money, volume_ration, source, raw_payload
+                    )
+                    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    on conflict(plate_code, trade_date, source) do update set
+                        plate_name = excluded.plate_name,
+                        rate = excluded.rate,
+                        score = excluded.score,
+                        speed = excluded.speed,
+                        money_leader = excluded.money_leader,
+                        money_leader_buy = excluded.money_leader_buy,
+                        money_leader_sell = excluded.money_leader_sell,
+                        trade_money = excluded.trade_money,
+                        volume_ration = excluded.volume_ration,
+                        raw_payload = excluded.raw_payload,
+                        updated_at = current_timestamp
+                    """,
+                    (
+                        code,
+                        trade_date,
+                        plate_name,
+                        item.get("rate"),
+                        item.get("score"),
+                        item.get("speed"),
+                        item.get("money_leader"),
+                        item.get("money_leader_buy"),
+                        item.get("money_leader_sell"),
+                        item.get("trade_money"),
+                        item.get("volume_ration") or item.get("volume_ratio"),
+                        raw_source,
+                        _json_text(item),
+                    ),
+                )
+                counts["trend"] += 1
+
+        for plate_code, rows in (data.get("reasons") or {}).items():
+            for item in rows or []:
+                reason_date = str(item.get("date") or item.get("reason_date") or "")
+                code = str(item.get("plate_code") or plate_code or "")
+                if not code or not reason_date:
+                    continue
+                msg_id = str(item.get("newid") or item.get("msg_id") or item.get("title") or reason_date)
+                self.conn.execute(
+                    """
+                    insert into plate_rotation_reasons(
+                        plate_code, reason_date, msg_id, plate_name, title, boomreason,
+                        is_boom, limit_up_count, strength_score, leader_info,
+                        source, raw_payload
+                    )
+                    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    on conflict(plate_code, reason_date, msg_id, source) do update set
+                        plate_name = excluded.plate_name,
+                        title = excluded.title,
+                        boomreason = excluded.boomreason,
+                        is_boom = excluded.is_boom,
+                        limit_up_count = excluded.limit_up_count,
+                        strength_score = excluded.strength_score,
+                        leader_info = excluded.leader_info,
+                        raw_payload = excluded.raw_payload,
+                        updated_at = current_timestamp
+                    """,
+                    (
+                        code,
+                        reason_date,
+                        msg_id,
+                        item.get("plate_name"),
+                        item.get("title"),
+                        item.get("boomreason"),
+                        item.get("isboom") if item.get("isboom") is not None else item.get("is_boom"),
+                        item.get("ztnum") if item.get("ztnum") is not None else item.get("limit_up_count"),
+                        item.get("qd") if item.get("qd") is not None else item.get("strength_score"),
+                        item.get("lzinfo") if item.get("lzinfo") is not None else item.get("leader_info"),
+                        raw_source,
+                        _json_text(item),
+                    ),
+                )
+                counts["reasons"] += 1
+
+        default_stock_date = str(data.get("date") or ((data.get("dates") or [None])[-1] or ""))
+        for plate_code, rows in (data.get("stocks") or {}).items():
+            for fallback_rank, item in enumerate(rows or [], start=1):
+                trade_date = str(item.get("date1") or item.get("trade_date") or default_stock_date)
+                code = str(item.get("plate_code") or plate_code or "")
+                stock_code = str(item.get("stock_code") or "")
+                if not trade_date or not code or not stock_code:
+                    continue
+                stock_name = item.get("stock_name")
+                self._upsert_trade_day(trade_date)
+                self._upsert_stock(stock_code, stock_name)
+                self._upsert_plate(code, item.get("plate_name"))
+                self.conn.execute(
+                    """
+                    insert into plate_rotation_stocks(
+                        trade_date, plate_code, stock_code, stock_name, rank_no, rank_diff,
+                        change_pct, high_change_pct, open_change_pct, turnover_ratio,
+                        volume_ratio, circulation_value, source, raw_payload
+                    )
+                    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    on conflict(trade_date, plate_code, stock_code, source) do update set
+                        stock_name = excluded.stock_name,
+                        rank_no = excluded.rank_no,
+                        rank_diff = excluded.rank_diff,
+                        change_pct = excluded.change_pct,
+                        high_change_pct = excluded.high_change_pct,
+                        open_change_pct = excluded.open_change_pct,
+                        turnover_ratio = excluded.turnover_ratio,
+                        volume_ratio = excluded.volume_ratio,
+                        circulation_value = excluded.circulation_value,
+                        raw_payload = excluded.raw_payload,
+                        updated_at = current_timestamp
+                    """,
+                    (
+                        trade_date,
+                        code,
+                        stock_code,
+                        stock_name,
+                        item.get("rank_no") or item.get("rank") or fallback_rank,
+                        item.get("rank_diff"),
+                        item.get("px_change_rate") if item.get("px_change_rate") is not None else item.get("change_pct"),
+                        item.get("high_change") if item.get("high_change") is not None else item.get("high_change_pct"),
+                        item.get("open_change") if item.get("open_change") is not None else item.get("open_change_pct"),
+                        item.get("turnover_ratio"),
+                        item.get("vol_ratio") if item.get("vol_ratio") is not None else item.get("volume_ratio"),
+                        item.get("circulation_value"),
+                        raw_source,
+                        _json_text(item),
+                    ),
+                )
+                counts["stocks"] += 1
+
+        self.conn.commit()
+        return counts
 
     def _upsert_trade_day(self, trade_date: str) -> None:
         self.conn.execute(

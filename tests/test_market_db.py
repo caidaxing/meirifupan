@@ -1931,6 +1931,101 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual("机器人", result["plates"][1]["plate_name"])
         self.assertEqual("机器人A", result["plates"][1]["stocks"][0]["stock_name"])
 
+    def test_plate_rotation_snapshot_includes_rank_trend_reason_and_stocks(self):
+        from db import MarketDB
+        from server.services.review_queries import get_plate_rotation_snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_plate_rotation_data(
+                {
+                    "dates": ["2026-06-15", "2026-06-16"],
+                    "ranks": {
+                        "2026-06-15": [
+                            {
+                                "plate_code": "801660",
+                                "plate_name": "通信",
+                                "rank_no": 1,
+                                "rate": 5.51,
+                                "score": 40075,
+                                "money_leader": 40513300000,
+                                "trade_money": 990000000000,
+                            }
+                        ],
+                        "2026-06-16": [
+                            {
+                                "plate_code": "801660",
+                                "plate_name": "通信",
+                                "rank_no": 1,
+                                "rate": 2.61,
+                                "score": 19855,
+                                "money_leader": 8905620000,
+                                "trade_money": 970391000000,
+                            },
+                            {
+                                "plate_code": "801001",
+                                "plate_name": "芯片",
+                                "rank_no": 2,
+                                "rate": 1.95,
+                                "score": 14762,
+                            },
+                        ],
+                    },
+                    "trends": {
+                        "801660": [
+                            {"date1": "2026-06-15", "plate_code": "801660", "plate_name": "通信", "rate": 5.51, "score": 40075, "trade_money": 990000000000},
+                            {"date1": "2026-06-16", "plate_code": "801660", "plate_name": "通信", "rate": 2.61, "score": 19855, "trade_money": 970391000000},
+                        ]
+                    },
+                    "reasons": {
+                        "801660": [
+                            {
+                                "date": "2026-06-15",
+                                "title": "HVLP 算力铜箔长单排至 2027 年",
+                                "boomreason": "AI 服务器高速模块推动高端铜箔需求。",
+                                "isboom": 1,
+                                "ztnum": 44,
+                                "qd": 40075,
+                                "lzinfo": "301176,逸豪新材,2连板",
+                                "newid": 41472,
+                            }
+                        ]
+                    },
+                    "stocks": {
+                        "801660": [
+                            {
+                                "stock_code": "600487",
+                                "stock_name": "亨通光电",
+                                "rank_no": 2,
+                                "px_change_rate": 7.57,
+                                "high_change": 9.45,
+                                "turnover_ratio": 8.95,
+                                "vol_ratio": 1.07,
+                            }
+                        ]
+                    },
+                },
+                raw_source="unit-test",
+            )
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            result = get_plate_rotation_snapshot(conn, "2026-06-16", days=2, top_n=12, source="unit-test")
+            latest_result = get_plate_rotation_snapshot(conn, None, days=2, top_n=12, source="unit-test")
+            conn.close()
+
+        self.assertEqual(["2026-06-15", "2026-06-16"], result["dates"])
+        self.assertEqual("2026-06-16", latest_result["date"])
+        self.assertEqual("通信", result["selected_plate"]["plate_name"])
+        self.assertEqual("通信", result["rank_by_date"]["2026-06-16"][0]["plate_name"])
+        self.assertEqual(19855, result["rank_by_date"]["2026-06-16"][0]["score"])
+        self.assertEqual(2, len(result["selected_plate"]["trend"]))
+        self.assertEqual("HVLP 算力铜箔长单排至 2027 年", result["selected_plate"]["reasons"][0]["title"])
+        self.assertEqual("亨通光电", result["selected_plate"]["stocks"][0]["stock_name"])
+
     def test_derive_review_data_populates_local_summary_tables(self):
         from db import MarketDB
         from derive_review_data import derive_review_data

@@ -11,6 +11,9 @@ services:
     environment:
       - DB_PATH=/app/data/market_review.db
       - TZ=Asia/Shanghai
+      - QUANTZZ_TOKEN=${QUANTZZ_TOKEN:-}
+      - QUANTZZ_EMAIL=${QUANTZZ_EMAIL:-}
+      - QUANTZZ_PASSWORD=${QUANTZZ_PASSWORD:-}
     restart: unless-stopped
 
   scheduler:
@@ -25,4 +28,7 @@ services:
       - TZ=Asia/Shanghai
       - DAILY_UPDATE_AT=17:30
       - DAILY_KLINE_LIMIT=30
+      - QUANTZZ_TOKEN=${QUANTZZ_TOKEN:-}
+      - QUANTZZ_EMAIL=${QUANTZZ_EMAIL:-}
+      - QUANTZZ_PASSWORD=${QUANTZZ_PASSWORD:-}
     restart: unless-stopped

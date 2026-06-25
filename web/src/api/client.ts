@@ -6,6 +6,7 @@ import type {
   DataJob,
   MarketOverviewTrendItem,
   PremarketGuide,
+  PlateRotationData,
   QuantzzDailyOverview,
 } from '../types'
 
@@ -50,6 +51,26 @@ export async function fetchQuantzzDaily(date: string, days = 60, signal?: AbortS
   const res = await fetch(`${BASE}/quantzz/daily?date=${date}&days=${days}`, { signal })
   if (!res.ok) {
     throw new Error(`Failed to fetch quantzz daily: ${res.statusText}`)
+  }
+  return res.json()
+}
+
+export async function fetchPlateRotation(
+  date?: string,
+  days = 8,
+  topN = 12,
+  plateCode?: string,
+  signal?: AbortSignal,
+): Promise<PlateRotationData> {
+  const params = new URLSearchParams({
+    days: String(days),
+    top_n: String(topN),
+  })
+  if (date) params.set('date', date)
+  if (plateCode) params.set('plate_code', plateCode)
+  const res = await fetch(`${BASE}/plate-rotation?${params.toString()}`, { signal })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch plate rotation: ${res.statusText}`)
   }
   return res.json()
 }

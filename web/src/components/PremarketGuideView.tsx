@@ -34,6 +34,11 @@ export function PremarketGuideView({ data, loading, error }: Props) {
   if (!data) return <div className="error">暂无盘前指引</div>
 
   const market = data.market_snapshot || {}
+  const state = data.market_state || {}
+  const highPosition = data.high_position_effect || {}
+  const trendHot = data.trend_hot_status || {}
+  const strategy = data.next_day_strategy || {}
+  const stockSetups = data.stock_setups || { pullback_watch: [], chase_risk: [], news_hot: [] }
   const topUs = data.us_markets.slice(0, 6)
 
   return (
@@ -52,6 +57,55 @@ export function PremarketGuideView({ data, loading, error }: Props) {
           <Metric label="平均涨幅" value={fmtPct(Number(market.avg_change_pct ?? 0))} tone={toneClass(Number(market.avg_change_pct ?? 0))} />
           <Metric label="涨停" value={`${market.limit_up_count ?? '-'}只`} tone="text-red" />
           <Metric label="跌停" value={`${market.limit_down_count ?? '-'}只`} tone="text-green" />
+        </div>
+      </section>
+
+      <section className="premarket-grid compact">
+        <div className="premarket-panel">
+          <PanelHead title="行情状态" sub={state.strategy_mode || '待确认'} />
+          <div className="premarket-state">
+            <strong>{state.state_label || '暂无诊断'}</strong>
+            {state.advice && <p>{state.advice}</p>}
+          </div>
+          <div className="premarket-mini-metrics">
+            <Metric label="状态分" value={`${state.score ?? '-'}`} />
+            <Metric label="上涨率" value={fmtPct(Number(state.metrics?.up_rate ?? 0))} />
+            <Metric label="炸板" value={`${state.metrics?.broken_limit_up_count ?? '-'}只`} />
+          </div>
+        </div>
+
+        <div className="premarket-panel">
+          <PanelHead title="赚钱效应" sub="趋势 / 高位" />
+          <div className="premarket-list">
+            <div className="premarket-row">
+              <strong>热门趋势股</strong>
+              <span>{trendHot.summary || '暂无趋势热门股诊断'}</span>
+              <em className={toneClass(trendHot.avg_change_pct)}>{fmtPct(trendHot.avg_change_pct)}</em>
+            </div>
+            <div className="premarket-row">
+              <strong>高位个股</strong>
+              <span>{highPosition.summary || '暂无高位反馈诊断'}</span>
+              <em>{highPosition.advance_rate == null ? '-' : `${highPosition.advance_rate}%`}</em>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="premarket-panel">
+        <PanelHead title="明日策略" sub={strategy.mode || state.strategy_mode || '观察'} />
+        <div className="premarket-strategy-grid">
+          <MiniList title="可以做" items={strategy.should_do || []} />
+          <MiniList title="先不做" items={strategy.avoid || []} />
+          <MiniList title="确认信号" items={strategy.confirmation || []} />
+        </div>
+      </section>
+
+      <section className="premarket-panel">
+        <PanelHead title="热门个股分组" sub="回撤 / 风险 / 新闻" />
+        <div className="premarket-strategy-grid">
+          <StockSetupList title="大幅回撤" empty="暂无明显回撤热门股" items={stockSetups.pullback_watch} />
+          <StockSetupList title="别追高" empty="暂无明显追高风险股" items={stockSetups.chase_risk} />
+          <StockSetupList title="新闻催化" empty="暂无新闻强关联个股" items={stockSetups.news_hot} />
         </div>
       </section>
 
@@ -159,6 +213,45 @@ function Metric({ label, value, tone = '' }: { label: string; value: string; ton
     <div className="quantzz-metric">
       <span>{label}</span>
       <strong className={tone}>{value}</strong>
+    </div>
+  )
+}
+
+function MiniList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="premarket-mini-list">
+      <strong>{title}</strong>
+      {items.length === 0 ? (
+        <span>-</span>
+      ) : items.map(item => <span key={item}>{item}</span>)}
+    </div>
+  )
+}
+
+function StockSetupList({
+  title,
+  empty,
+  items,
+}: {
+  title: string
+  empty: string
+  items: NonNullable<PremarketGuide['stock_setups']>['pullback_watch']
+}) {
+  return (
+    <div className="premarket-mini-list premarket-stock-setup-list">
+      <strong>{title}</strong>
+      {items.length === 0 ? (
+        <span>{empty}</span>
+      ) : items.slice(0, 5).map(item => (
+        <div className="premarket-stock-setup" key={`${title}-${item.stock_code || item.stock_name}`}>
+          <div>
+            <b>{item.stock_name}</b>
+            <span>{item.stock_code || '-'}{item.sectors?.length ? ` · ${item.sectors.slice(0, 2).join(' / ')}` : ''}</span>
+          </div>
+          <em className={toneClass(item.change_pct)}>{fmtPct(item.change_pct)}</em>
+          {item.action_hint && <p>{item.action_hint}</p>}
+        </div>
+      ))}
     </div>
   )
 }

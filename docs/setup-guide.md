@@ -90,6 +90,47 @@ http://127.0.0.1:8765/?date=2026-05-28
 
 每天收盘后（15:00后）重新运行爬取脚本即可获取当日数据。
 
+## 自动化脚本
+
+项目提供一个统一入口：
+
+```bash
+scripts/auto_review.sh status
+```
+
+常用命令：
+
+```bash
+# 立即补最近 30 个交易日数据
+scripts/auto_review.sh once
+
+# 启动数据库数据页
+scripts/auto_review.sh server
+
+# 启动每日自动调度：盘前 08:30，复盘 17:30
+scripts/auto_review.sh schedule
+
+# 查看数据库、数据页、调度器状态
+scripts/auto_review.sh status
+
+# 停止数据页和调度器
+scripts/auto_review.sh stop
+```
+
+可以用环境变量调整时间：
+
+```bash
+DAILY_UPDATE_AT=18:00 PREMARKET_UPDATE_AT=08:45 scripts/auto_review.sh schedule
+```
+
+日志位置：
+
+```text
+logs/auto_update.log
+logs/data_server.log
+logs/daily_scheduler.log
+```
+
 ## 常见问题
 
 ### Token 过期

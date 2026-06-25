@@ -21,6 +21,7 @@ from fetch_hot import fetch_hot_boards, fetch_hot_stocks
 from fetch_market_overview import fetch_market_overview
 from fetch_missing_data import DEFAULT_DB_PATH, run_collectors
 from fetch_plate_index_daily import fetch_plate_index_daily
+from fetch_plate_rotation import fetch_plate_rotation
 from fetch_ths_hot import fetch_ths_hot_bundle
 from fetch_uplimit import fetch_sentiment_data, fetch_uplimit_data, load_token
 from generate_review import generate_daily_review
@@ -170,6 +171,7 @@ def run_daily_update(
         )
         run_step("热门股票", lambda: _fetch_hot_stocks(db_path, target_day), summary)
         run_step("热门板块", lambda: _fetch_hot_boards(db_path, target_day), summary)
+        run_step("题材轮动", lambda: fetch_plate_rotation(db_path=db_path, end_date=target_day, days=8, top_n=12), summary)
         run_step("短线热榜", lambda: {"shortline_hot": derive_shortline_hot(db_path, target_day)}, summary)
         run_step(
             "真实板块日线",

@@ -5,6 +5,7 @@ import {
   fetchDates,
   fetchMarketOverviewTrend,
   fetchPremarketGuide,
+  fetchPlateRotation,
   fetchQuantzzDaily,
   fetchInsights,
   fetchHot,
@@ -19,6 +20,7 @@ import type {
   DataJob,
   MarketOverviewTrendItem,
   PremarketGuide,
+  PlateRotationData,
   QuantzzDailyOverview,
 } from '../types'
 
@@ -26,6 +28,7 @@ export function useReview(date: string) {
   const [data, setData] = useState<ReviewData | null>(null)
   const [trend, setTrend] = useState<EmotionTrendItem[]>([])
   const [marketTrend, setMarketTrend] = useState<MarketOverviewTrendItem[]>([])
+  const [plateRotation, setPlateRotation] = useState<PlateRotationData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,6 +37,7 @@ export function useReview(date: string) {
       setData(null)
       setTrend([])
       setMarketTrend([])
+      setPlateRotation(null)
       setLoading(false)
       setError(null)
       return
@@ -44,11 +48,16 @@ export function useReview(date: string) {
       fetchReview(date, ctrl.signal),
       fetchEmotionTrend(date, 60, ctrl.signal),
       fetchMarketOverviewTrend(date, 60, ctrl.signal),
+      fetchPlateRotation(date, 8, 12, undefined, ctrl.signal).catch(e => {
+        if (e.name !== 'AbortError') console.error(e)
+        return null
+      }),
     ])
-      .then(([review, trend, marketTrend]) => {
+      .then(([review, trend, marketTrend, plateRotation]) => {
         setData(review)
         setTrend(trend)
         setMarketTrend(marketTrend)
+        setPlateRotation(plateRotation)
         setError(null)
       })
       .catch(e => {
@@ -58,7 +67,7 @@ export function useReview(date: string) {
     return () => ctrl.abort()
   }, [date])
 
-  return { data, trend, marketTrend, loading, error }
+  return { data, trend, marketTrend, plateRotation, loading, error }
 }
 
 export function useDates() {

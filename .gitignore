@@ -11,10 +11,13 @@ __pycache__/
 # Data files
 data/
 reports/
+logs/
+.run/
 
 # Sensitive config
 config/token.json
 config/settings.yaml
+config/*.bak.*
 
 # OS
 .DS_Store

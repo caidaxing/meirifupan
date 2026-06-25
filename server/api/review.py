@@ -24,6 +24,7 @@ from server.services.review_queries import (
     get_market_environment,
     get_market_overview_trend,
     get_latest_premarket_guide,
+    get_plate_rotation_snapshot,
     get_premarket_guide,
     get_quantzz_daily_overview,
     get_recent_hot_plates_with_stocks,
@@ -154,6 +155,21 @@ def get_quantzz_daily(
         if date not in available:
             raise HTTPException(status_code=404, detail=f"No data for date {date}.")
         return get_quantzz_daily_overview(conn, date, days)
+    finally:
+        conn.close()
+
+
+@router.get("/api/plate-rotation")
+def get_plate_rotation(
+    date: str | None = Query(None, description="End date, e.g. 2026-06-16. Empty means latest plate rotation date."),
+    days: int = Query(8, description="Number of trading days to include"),
+    top_n: int = Query(12, description="Top plates per day"),
+    plate_code: str | None = Query(None, description="Selected plate code"),
+):
+    """Return topic/plate rotation data."""
+    conn = get_connection()
+    try:
+        return get_plate_rotation_snapshot(conn, date, days=days, top_n=top_n, plate_code=plate_code)
     finally:
         conn.close()
 

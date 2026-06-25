@@ -1018,6 +1018,15 @@ def get_premarket_guide(conn: sqlite3.Connection, guide_date: str) -> dict[str, 
     raw = _json_dict(result.get("raw_payload"))
     result["generated_at"] = raw.get("generated_at") or result.get("updated_at") or result.get("created_at")
     result["market_snapshot"] = raw.get("market_snapshot") or {}
+    result["market_state"] = raw.get("market_state") or {}
+    result["high_position_effect"] = raw.get("high_position_effect") or {}
+    result["trend_hot_status"] = raw.get("trend_hot_status") or {}
+    result["next_day_strategy"] = raw.get("next_day_strategy") or {}
+    result["stock_setups"] = raw.get("stock_setups") or {
+        "pullback_watch": [],
+        "chase_risk": [],
+        "news_hot": [],
+    }
     result["hot_stocks"] = raw.get("hot_stocks") or []
     result["space_stocks"] = raw.get("space_stocks") or []
     result["focus_plates"] = _json_list(result.get("focus_plates"))
@@ -1308,6 +1317,162 @@ def get_hot_boards_rank(conn: sqlite3.Connection, date: str, board_type: str = "
         (date, board_type, limit),
     ).fetchall()
     return _rows_to_list(rows)
+
+
+def get_plate_rotation_snapshot(
+    conn: sqlite3.Connection,
+    date: str | None = None,
+    days: int = 8,
+    top_n: int = 12,
+    plate_code: str | None = None,
+    source: str = "quant_yjj",
+) -> dict[str, Any]:
+    """Return plate rotation ranks and selected plate details."""
+    if not date:
+        latest_row = conn.execute(
+            """
+            SELECT MAX(trade_date) AS trade_date
+            FROM plate_rotation_rank
+            WHERE source = ?
+            """,
+            (source,),
+        ).fetchone()
+        date = latest_row["trade_date"] if latest_row else None
+
+    if not date:
+        return {
+            "date": "",
+            "dates": [],
+            "rank_by_date": {},
+            "selected_plate": None,
+            "source": source,
+        }
+
+    date_rows = conn.execute(
+        """
+        SELECT DISTINCT trade_date
+        FROM plate_rotation_rank
+        WHERE trade_date <= ? AND source = ?
+        ORDER BY trade_date DESC
+        LIMIT ?
+        """,
+        (date, source, days),
+    ).fetchall()
+    dates = sorted([row["trade_date"] for row in date_rows])
+    if not dates:
+        return {
+            "date": date,
+            "dates": [],
+            "rank_by_date": {},
+            "selected_plate": None,
+            "source": source,
+        }
+
+    rank_by_date: dict[str, list[dict[str, Any]]] = {}
+    selected_code = plate_code
+    latest_date = dates[-1]
+    for day in dates:
+        rows = conn.execute(
+            """
+            SELECT trade_date, plate_code, plate_name, rank_no, rate, score, speed,
+                   money_leader, money_leader_buy, money_leader_sell,
+                   trade_money, volume_ration
+            FROM plate_rotation_rank
+            WHERE trade_date = ? AND source = ?
+            ORDER BY rank_no
+            LIMIT ?
+            """,
+            (day, source, top_n),
+        ).fetchall()
+        items = _rows_to_list(rows)
+        rank_by_date[day] = items
+        if not selected_code and day == latest_date and items:
+            selected_code = items[0]["plate_code"]
+
+    selected_plate = None
+    if selected_code:
+        selected_plate = _get_plate_rotation_detail(conn, selected_code, dates[0], latest_date, top_n, source)
+
+    return {
+        "date": latest_date,
+        "dates": dates,
+        "rank_by_date": rank_by_date,
+        "selected_plate": selected_plate,
+        "source": source,
+    }
+
+
+def _get_plate_rotation_detail(
+    conn: sqlite3.Connection,
+    plate_code: str,
+    day_start: str,
+    day_end: str,
+    stock_limit: int,
+    source: str,
+) -> dict[str, Any] | None:
+    plate_row = conn.execute(
+        """
+        SELECT plate_code, plate_name
+        FROM plate_rotation_rank
+        WHERE plate_code = ? AND source = ?
+        ORDER BY trade_date DESC
+        LIMIT 1
+        """,
+        (plate_code, source),
+    ).fetchone()
+    if not plate_row:
+        return None
+
+    trend_rows = conn.execute(
+        """
+        SELECT trade_date, plate_code, plate_name, rate, score, speed,
+               money_leader, money_leader_buy, money_leader_sell,
+               trade_money, volume_ration
+        FROM plate_rotation_trend
+        WHERE plate_code = ?
+          AND source = ?
+          AND trade_date BETWEEN ? AND ?
+        ORDER BY trade_date
+        """,
+        (plate_code, source, day_start, day_end),
+    ).fetchall()
+
+    reason_rows = conn.execute(
+        """
+        SELECT reason_date as date, msg_id, plate_name, title, boomreason,
+               is_boom, limit_up_count, strength_score, leader_info
+        FROM plate_rotation_reasons
+        WHERE plate_code = ? AND source = ?
+        ORDER BY reason_date DESC
+        LIMIT 10
+        """,
+        (plate_code, source),
+    ).fetchall()
+
+    stock_rows = conn.execute(
+        """
+        SELECT trade_date, plate_code, stock_code, stock_name, rank_no, rank_diff,
+               change_pct, high_change_pct, open_change_pct, turnover_ratio,
+               volume_ratio, circulation_value
+        FROM plate_rotation_stocks
+        WHERE plate_code = ?
+          AND source = ?
+          AND trade_date = (
+              SELECT MAX(trade_date)
+              FROM plate_rotation_stocks
+              WHERE plate_code = ? AND source = ? AND trade_date <= ?
+          )
+        ORDER BY rank_no
+        LIMIT ?
+        """,
+        (plate_code, source, plate_code, source, day_end, stock_limit),
+    ).fetchall()
+
+    result = _row_to_dict(plate_row)
+    result["trend"] = _rows_to_list(trend_rows)
+    result["reasons"] = _rows_to_list(reason_rows)
+    result["stocks"] = _rows_to_list(stock_rows)
+    return result
 
 
 def get_stock_hot_ranks(

@@ -10,6 +10,14 @@ from urllib.parse import parse_qs, urlparse
 from build_data_preview_html import DEFAULT_DB_PATH, build_html_preview
 
 
+class LocalDataHTTPServer(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        self.socket.bind(self.server_address)
+        host, port = self.socket.getsockname()[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
+
+
 def render_path(path: str, db_path: str | Path) -> tuple[int, str, str]:
     parsed = urlparse(path)
     if parsed.path not in ("/", "/review"):
@@ -41,7 +49,7 @@ def create_server(host: str, port: int, db_path: str | Path) -> ThreadingHTTPSer
         def log_message(self, format: str, *args) -> None:
             return
 
-    return ThreadingHTTPServer((host, port), DataRequestHandler)
+    return LocalDataHTTPServer((host, port), DataRequestHandler)
 
 
 def main() -> None:

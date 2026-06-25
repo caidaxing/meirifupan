@@ -68,6 +68,75 @@ export interface RecentHotPlatesPayload {
   plates: RecentHotPlate[]
 }
 
+export interface PlateRotationRankItem {
+  trade_date: string
+  plate_code: string
+  plate_name: string
+  rank_no: number
+  rate: number | null
+  score: number | null
+  speed?: number | null
+  money_leader?: number | null
+  money_leader_buy?: number | null
+  money_leader_sell?: number | null
+  trade_money?: number | null
+  volume_ration?: number | null
+}
+
+export interface PlateRotationTrendItem {
+  trade_date: string
+  plate_code: string
+  plate_name: string
+  rate: number | null
+  score: number | null
+  speed?: number | null
+  money_leader?: number | null
+  trade_money?: number | null
+  volume_ration?: number | null
+}
+
+export interface PlateRotationReason {
+  date: string
+  msg_id: string
+  title: string | null
+  boomreason: string | null
+  is_boom: number | null
+  limit_up_count: number | null
+  strength_score: number | null
+  leader_info: string | null
+}
+
+export interface PlateRotationStock {
+  trade_date: string
+  plate_code: string
+  stock_code: string
+  stock_name: string
+  rank_no: number | null
+  rank_diff: number | null
+  change_pct: number | null
+  high_change_pct: number | null
+  open_change_pct: number | null
+  turnover_ratio: number | null
+  volume_ratio: number | null
+  circulation_value: number | null
+}
+
+export interface PlateRotationSelectedPlate {
+  plate_code: string
+  plate_name: string
+  trend: PlateRotationTrendItem[]
+  reasons: PlateRotationReason[]
+  stocks: PlateRotationStock[]
+}
+
+export interface PlateRotationData {
+  date: string
+  dates: string[]
+  rank_by_date: Record<string, PlateRotationRankItem[]>
+  selected_plate: PlateRotationSelectedPlate | null
+  source: string
+}
+
 export interface HighStock {
   stock_code: string
   stock_name: string
@@ -615,6 +684,65 @@ export interface PremarketUsMarket {
   mapped_theme?: string | null
 }
 
+export interface PremarketMarketState {
+  state_code?: string
+  state_label?: string
+  strategy_mode?: string
+  score?: number
+  advice?: string
+  reasons?: string[]
+  risk_flags?: string[]
+  metrics?: Record<string, number | string | null>
+}
+
+export interface PremarketHighPositionEffect {
+  prev_date?: string | null
+  total?: number
+  advanced?: number
+  maintained?: number
+  failed?: number
+  advance_rate?: number
+  fail_rate?: number
+  limit_down_failed?: number
+  failed_names?: string[]
+  summary?: string
+}
+
+export interface PremarketTrendHotStatus {
+  status?: string
+  summary?: string
+  avg_change_pct?: number
+  up_count?: number
+  down_count?: number
+  heavy_fall_count?: number
+  strong_rise_count?: number
+  new_high_count?: number
+  stocks?: HotStockRank[]
+}
+
+export interface PremarketNextDayStrategy {
+  mode?: string
+  should_do?: string[]
+  avoid?: string[]
+  confirmation?: string[]
+}
+
+export interface PremarketStockSetupItem {
+  stock_code?: string | null
+  stock_name: string
+  rank_no?: number | null
+  change_pct?: number | null
+  sectors?: string[]
+  reason?: string
+  action_hint?: string
+}
+
+export interface PremarketStockSetups {
+  pullback_watch: PremarketStockSetupItem[]
+  chase_risk: PremarketStockSetupItem[]
+  news_hot: PremarketStockSetupItem[]
+}
+
 export interface PremarketGuide {
   guide_date: string
   review_date: string
@@ -622,6 +750,11 @@ export interface PremarketGuide {
   headline: string
   market_tone: string
   market_snapshot: Record<string, number | string | null>
+  market_state?: PremarketMarketState
+  high_position_effect?: PremarketHighPositionEffect
+  trend_hot_status?: PremarketTrendHotStatus
+  next_day_strategy?: PremarketNextDayStrategy
+  stock_setups?: PremarketStockSetups
   focus_plates: PremarketFocusPlate[]
   hot_stocks: HotStockRank[]
   space_stocks: QuantzzSpaceBoard['stocks']
