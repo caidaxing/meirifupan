@@ -131,6 +131,50 @@ logs/data_server.log
 logs/daily_scheduler.log
 ```
 
+## 代码同步
+
+当前默认仓库是：
+
+```text
+https://github.com/caidaxing/meirifupan.git
+```
+
+第一次使用前，确认 GitHub CLI 登录的是 `caidaxing`：
+
+```bash
+gh auth status
+```
+
+如果不是 `caidaxing`，重新登录：
+
+```bash
+gh auth logout -h github.com
+gh auth login -h github.com -p https -w
+gh auth setup-git
+```
+
+日常同步用这个脚本：
+
+```bash
+# 查看同步状态
+scripts/git_sync.sh status
+
+# 从 GitHub 拉取最新代码
+scripts/git_sync.sh pull
+
+# 推送已经提交的代码
+scripts/git_sync.sh push
+
+# 提交当前改动，然后拉取并推送
+scripts/git_sync.sh save "本次修改说明"
+```
+
+建议每次换电脑或开始改代码前先运行：
+
+```bash
+scripts/git_sync.sh pull
+```
+
 ## 常见问题
 
 ### Token 过期
