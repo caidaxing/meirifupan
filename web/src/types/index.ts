@@ -416,6 +416,27 @@ export interface ReviewData {
   emotion: EmotionData
 }
 
+export type ReviewPayloadStatus = 'ok' | 'partial' | 'empty' | 'error'
+
+export interface ReviewPayload<TItem = Record<string, unknown>, TSummary = Record<string, unknown>> {
+  date: string
+  status: ReviewPayloadStatus
+  updated_at: string
+  summary: TSummary
+  filters: Record<string, unknown>
+  items: TItem[]
+  warnings: string[]
+}
+
+export type ReviewSubmoduleKey =
+  | 'limit-up-reasons'
+  | 'limit-up-tiers'
+  | 'price-tiers'
+  | 'promotions'
+  | 'plate-rotation'
+  | 'lhb'
+  | 'movement-alerts'
+
 export interface DataJobStep {
   name: string
   status: string
@@ -727,22 +748,6 @@ export interface PremarketNextDayStrategy {
   confirmation?: string[]
 }
 
-export interface PremarketStockSetupItem {
-  stock_code?: string | null
-  stock_name: string
-  rank_no?: number | null
-  change_pct?: number | null
-  sectors?: string[]
-  reason?: string
-  action_hint?: string
-}
-
-export interface PremarketStockSetups {
-  pullback_watch: PremarketStockSetupItem[]
-  chase_risk: PremarketStockSetupItem[]
-  news_hot: PremarketStockSetupItem[]
-}
-
 export interface PremarketGuide {
   guide_date: string
   review_date: string
@@ -754,7 +759,6 @@ export interface PremarketGuide {
   high_position_effect?: PremarketHighPositionEffect
   trend_hot_status?: PremarketTrendHotStatus
   next_day_strategy?: PremarketNextDayStrategy
-  stock_setups?: PremarketStockSetups
   focus_plates: PremarketFocusPlate[]
   hot_stocks: HotStockRank[]
   space_stocks: QuantzzSpaceBoard['stocks']

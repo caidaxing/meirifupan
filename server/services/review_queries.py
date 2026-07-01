@@ -83,6 +83,29 @@ def _pct(part: int | float | None, total: int | float | None, digits: int = 1) -
     return _round_or_none((part or 0) / total * 100, digits)
 
 
+def make_review_payload(
+    date: str,
+    *,
+    status: str = "ok",
+    summary: dict[str, Any] | None = None,
+    filters: dict[str, Any] | None = None,
+    items: list[Any] | None = None,
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build the standard response envelope for review submodules."""
+    allowed_status = {"ok", "partial", "empty", "error"}
+    normalized_status = status if status in allowed_status else "error"
+    return {
+        "date": date,
+        "status": normalized_status,
+        "updated_at": datetime.now().astimezone().replace(microsecond=0).isoformat(),
+        "summary": summary or {},
+        "filters": filters or {},
+        "items": items or [],
+        "warnings": warnings or [],
+    }
+
+
 def _hot_stock_source_filter(conn: sqlite3.Connection, date: str) -> str:
     """Prefer true popularity rankings; use turnover rank only as a fallback."""
     row = conn.execute(
@@ -475,6 +498,463 @@ def get_all_stocks(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
         result.append(stock_dict)
 
     return result
+
+
+def get_review_limit_up_reasons(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
+    """Return limit-up reasons grouped by plate for the review submodule."""
+    stats_row = conn.execute(
+        """
+        SELECT
+            COUNT(DISTINCT stock_code) as limit_up_count,
+            SUM(CASE WHEN COALESCE(up_limit_keep_times, 1) <= 1 THEN 1 ELSE 0 END) as first_board_count,
+            SUM(CASE WHEN COALESCE(up_limit_keep_times, 1) >= 2 THEN 1 ELSE 0 END) as multi_board_count,
+            COALESCE(MAX(COALESCE(up_limit_keep_times, 1)), 0) as highest_board
+        FROM limit_up_events
+        WHERE trade_date = ?
+        """,
+        (date,),
+    ).fetchone()
+    summary = _row_to_dict(stats_row) if stats_row else {}
+    summary = {
+        "limit_up_count": summary.get("limit_up_count") or 0,
+        "first_board_count": summary.get("first_board_count") or 0,
+        "multi_board_count": summary.get("multi_board_count") or 0,
+        "highest_board": summary.get("highest_board") or 0,
+        "plate_count": 0,
+    }
+
+    plate_rows = conn.execute(
+        """
+        SELECT
+            m.plate_code,
+            COALESCE(MAX(m.plate_name), MAX(r.plate_name), m.plate_code) as plate_name,
+            MAX(COALESCE(r.score, m.plate_score, 0)) as plate_score,
+            MIN(r.rank_no) as rank_no,
+            COUNT(DISTINCT m.stock_code) as limit_up_count
+        FROM limit_up_plate_map m
+        LEFT JOIN plate_hot_rank r
+          ON r.trade_date = m.trade_date
+         AND r.plate_code = m.plate_code
+         AND r.source = 'uplimit_hot'
+        WHERE m.trade_date = ?
+        GROUP BY m.plate_code
+        ORDER BY COALESCE(MIN(r.rank_no), 9999), plate_score DESC, limit_up_count DESC, plate_name ASC
+        """,
+        (date,),
+    ).fetchall()
+
+    items: list[dict[str, Any]] = []
+    for plate in plate_rows:
+        stock_rows = conn.execute(
+            """
+            SELECT
+                e.stock_code,
+                e.stock_name,
+                e.stock_price,
+                e.up_limit_time,
+                e.up_limit_desc,
+                e.up_limit_keep_times,
+                e.up_limit_type,
+                COALESCE(m.stock_reason, e.reason) as reason,
+                e.fengdan_money,
+                e.fengdan_rate,
+                e.amount,
+                e.circulation_value,
+                e.turnover_rate,
+                e.market_type
+            FROM limit_up_plate_map m
+            JOIN limit_up_events e
+              ON e.trade_date = m.trade_date
+             AND e.stock_code = m.stock_code
+            WHERE m.trade_date = ? AND m.plate_code = ?
+            ORDER BY COALESCE(e.up_limit_keep_times, 1) DESC,
+                     e.up_limit_time ASC,
+                     COALESCE(e.fengdan_money, 0) DESC,
+                     e.stock_code ASC
+            """,
+            (date, plate["plate_code"]),
+        ).fetchall()
+
+        stocks: list[dict[str, Any]] = []
+        reason_counts: dict[str, int] = {}
+        for stock in stock_rows:
+            concept_rows = conn.execute(
+                """
+                SELECT plate_name
+                FROM limit_up_plate_map
+                WHERE trade_date = ? AND stock_code = ?
+                ORDER BY COALESCE(plate_score, 0) DESC, plate_name ASC
+                """,
+                (date, stock["stock_code"]),
+            ).fetchall()
+            reason = stock["reason"]
+            if reason:
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            stocks.append({
+                "stock_code": stock["stock_code"],
+                "stock_name": stock["stock_name"],
+                "price": stock["stock_price"],
+                "limit_up_time": stock["up_limit_time"],
+                "board_label": stock["up_limit_desc"],
+                "board_count": stock["up_limit_keep_times"] or 1,
+                "limit_up_type": stock["up_limit_type"],
+                "reason": stock["reason"],
+                "seal_amount": stock["fengdan_money"],
+                "seal_rate": stock["fengdan_rate"],
+                "turnover": stock["amount"],
+                "free_float_market_cap": stock["circulation_value"],
+                "turnover_rate": stock["turnover_rate"],
+                "market_type": stock["market_type"],
+                "concepts": [row["plate_name"] for row in concept_rows if row["plate_name"]],
+            })
+
+        reasons = [
+            {"reason": reason, "count": count}
+            for reason, count in sorted(reason_counts.items(), key=lambda item: (-item[1], item[0]))
+        ]
+        items.append({
+            "plate_code": plate["plate_code"],
+            "plate_name": plate["plate_name"],
+            "plate_score": plate["plate_score"] or 0,
+            "rank_no": plate["rank_no"],
+            "limit_up_count": plate["limit_up_count"],
+            "reasons": reasons,
+            "stocks": stocks,
+        })
+
+    summary["plate_count"] = len(items)
+    return make_review_payload(
+        date,
+        status="ok" if items else "empty",
+        summary=summary,
+        filters={"plates": [item["plate_name"] for item in items]},
+        items=items,
+    )
+
+
+def _get_stock_concepts(conn: sqlite3.Connection, date: str, stock_code: str) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT plate_name
+        FROM limit_up_plate_map
+        WHERE trade_date = ? AND stock_code = ?
+        ORDER BY COALESCE(plate_score, 0) DESC, plate_name ASC
+        """,
+        (date, stock_code),
+    ).fetchall()
+    return [row["plate_name"] for row in rows if row["plate_name"]]
+
+
+def get_review_limit_up_tiers(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
+    """Return limit-up stocks grouped by consecutive board level."""
+    rows = conn.execute(
+        """
+        SELECT
+            COALESCE(up_limit_keep_times, 1) as level,
+            stock_code,
+            stock_name,
+            stock_price,
+            up_limit_time,
+            up_limit_desc,
+            up_limit_type,
+            reason,
+            fengdan_money,
+            amount,
+            circulation_value,
+            turnover_rate
+        FROM limit_up_events
+        WHERE trade_date = ?
+        ORDER BY level DESC, up_limit_time ASC, COALESCE(fengdan_money, 0) DESC, stock_code ASC
+        """,
+        (date,),
+    ).fetchall()
+
+    tiers: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        level = row["level"] or 1
+        tier = tiers.setdefault(level, {
+            "level": level,
+            "label": "first-board" if level == 1 else f"{level}-board",
+            "count": 0,
+            "stocks": [],
+        })
+        tier["count"] += 1
+        tier["stocks"].append({
+            "stock_code": row["stock_code"],
+            "stock_name": row["stock_name"],
+            "price": row["stock_price"],
+            "limit_up_time": row["up_limit_time"],
+            "board_label": row["up_limit_desc"],
+            "limit_up_type": row["up_limit_type"],
+            "reason": row["reason"],
+            "seal_amount": row["fengdan_money"],
+            "turnover": row["amount"],
+            "free_float_market_cap": row["circulation_value"],
+            "turnover_rate": row["turnover_rate"],
+            "concepts": _get_stock_concepts(conn, date, row["stock_code"]),
+        })
+
+    broken_rows = conn.execute(
+        """
+        SELECT stock_code, stock_name, latest_price, change_pct, first_limit_up_time,
+               open_count, limit_up_stat, industry, amount, turnover_rate
+        FROM broken_limit_up_events
+        WHERE trade_date = ?
+        ORDER BY COALESCE(open_count, 0) DESC, COALESCE(amount, 0) DESC, stock_code ASC
+        """,
+        (date,),
+    ).fetchall()
+    if broken_rows:
+        tiers[0] = {
+            "level": 0,
+            "label": "broken-limit-up",
+            "count": len(broken_rows),
+            "stocks": [{
+                "stock_code": row["stock_code"],
+                "stock_name": row["stock_name"],
+                "price": row["latest_price"],
+                "change_pct": row["change_pct"],
+                "limit_up_time": row["first_limit_up_time"],
+                "open_count": row["open_count"],
+                "limit_up_stat": row["limit_up_stat"],
+                "industry": row["industry"],
+                "turnover": row["amount"],
+                "turnover_rate": row["turnover_rate"],
+            } for row in broken_rows],
+        }
+
+    items = [tiers[level] for level in sorted(tiers.keys(), reverse=True)]
+    summary = {
+        "limit_up_count": sum(item["count"] for item in items if item["level"] > 0),
+        "broken_count": tiers.get(0, {}).get("count", 0),
+        "tier_count": len([item for item in items if item["level"] > 0]),
+        "highest_board": max([item["level"] for item in items if item["level"] > 0], default=0),
+    }
+    return make_review_payload(
+        date,
+        status="ok" if items else "empty",
+        summary=summary,
+        filters={"levels": [item["level"] for item in items]},
+        items=items,
+    )
+
+
+def get_review_promotions(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
+    """Return board promotion results based on previous trading day."""
+    prev_date = get_prev_trade_date(conn, date)
+    items = get_board_advancement(conn, date)
+    total = sum(item["total"] for item in items)
+    advanced = sum(item["advanced"] for item in items)
+    summary = {
+        "base_date": prev_date,
+        "total": total,
+        "advanced": advanced,
+        "advancement_rate": _pct(advanced, total),
+        "level_count": len(items),
+    }
+    return make_review_payload(
+        date,
+        status="ok" if items else "empty",
+        summary=summary,
+        filters={"base_date": prev_date},
+        items=items,
+        warnings=[] if prev_date else ["缺少前一交易日涨停数据，无法计算晋级。"],
+    )
+
+
+def get_review_price_tiers(conn: sqlite3.Connection, date: str, days: int = 10) -> dict[str, Any]:
+    """Return cumulative price-change tiers. This needs enough daily K-line data."""
+    date_rows = conn.execute(
+        """
+        SELECT DISTINCT trade_date
+        FROM stock_kline_daily
+        WHERE trade_date <= ?
+        ORDER BY trade_date DESC
+        LIMIT ?
+        """,
+        (date, days),
+    ).fetchall()
+    dates = sorted([row["trade_date"] for row in date_rows])
+    if len(dates) < 2:
+        return make_review_payload(
+            date,
+            status="partial",
+            summary={"days": days, "stock_count": 0},
+            filters={"days": days},
+            items=[],
+            warnings=["缺少足够的个股日 K 数据，暂时不能计算涨幅梯队。"],
+        )
+
+    start_date = dates[0]
+    end_date = dates[-1]
+    rows = conn.execute(
+        """
+        WITH bounds AS (
+            SELECT
+                stock_code,
+                MIN(trade_date) as start_date,
+                MAX(trade_date) as end_date,
+                COUNT(*) as sample_days
+            FROM stock_kline_daily
+            WHERE trade_date BETWEEN ? AND ?
+              AND close_price IS NOT NULL
+            GROUP BY stock_code
+            HAVING sample_days >= 2
+        )
+        SELECT
+            b.stock_code,
+            COALESCE(s.stock_name, b.stock_code) as stock_name,
+            start_k.close_price as start_close,
+            end_k.close_price as end_close,
+            start_k.trade_date as stock_start_date,
+            end_k.trade_date as stock_end_date,
+            b.sample_days,
+            end_k.amount
+        FROM bounds b
+        JOIN stock_kline_daily start_k
+          ON start_k.stock_code = b.stock_code
+         AND start_k.trade_date = b.start_date
+        JOIN stock_kline_daily end_k
+          ON end_k.stock_code = b.stock_code
+         AND end_k.trade_date = b.end_date
+        LEFT JOIN stocks s ON s.stock_code = b.stock_code
+        WHERE start_k.close_price IS NOT NULL
+          AND start_k.close_price > 0
+          AND end_k.close_price IS NOT NULL
+        """,
+        (start_date, end_date),
+    ).fetchall()
+
+    buckets = [
+        (100, None, ">=100%"),
+        (80, 100, "80%-100%"),
+        (60, 80, "60%-80%"),
+        (40, 60, "40%-60%"),
+        (20, 40, "20%-40%"),
+        (0, 20, "0%-20%"),
+        (None, 0, "<0%"),
+    ]
+    items = [{"range": label, "min_pct": low, "max_pct": high, "count": 0, "stocks": []} for low, high, label in buckets]
+    for row in rows:
+        pct = _round_or_none((row["end_close"] - row["start_close"]) / row["start_close"] * 100)
+        if pct is None:
+            continue
+        for bucket in items:
+            low = bucket["min_pct"]
+            high = bucket["max_pct"]
+            if (low is None or pct >= low) and (high is None or pct < high):
+                bucket["count"] += 1
+                bucket["stocks"].append({
+                    "stock_code": row["stock_code"],
+                    "stock_name": row["stock_name"],
+                    "change_pct": pct,
+                    "start_close": row["start_close"],
+                    "end_close": row["end_close"],
+                    "start_date": row["stock_start_date"],
+                    "end_date": row["stock_end_date"],
+                    "sample_days": row["sample_days"],
+                    "amount": row["amount"],
+                })
+                break
+
+    return make_review_payload(
+        date,
+        status="ok" if rows else "empty",
+        summary={"days": len(dates), "start_date": start_date, "end_date": end_date, "stock_count": len(rows)},
+        filters={"days": days},
+        items=[item for item in items if item["count"]],
+    )
+
+
+def get_review_lhb(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
+    """Return daily Dragon Tiger List rows."""
+    rows = conn.execute(
+        """
+        SELECT stock_code, stock_name, reason, buy_amount, sell_amount, net_buy_amount, raw_payload
+        FROM lhb_daily
+        WHERE trade_date = ?
+        ORDER BY ABS(COALESCE(net_buy_amount, 0)) DESC, stock_code ASC
+        """,
+        (date,),
+    ).fetchall()
+    items = []
+    for row in rows:
+        items.append({
+            "stock_code": row["stock_code"],
+            "stock_name": row["stock_name"],
+            "reason": row["reason"],
+            "buy_amount": row["buy_amount"],
+            "sell_amount": row["sell_amount"],
+            "net_buy_amount": row["net_buy_amount"],
+            "concepts": _get_stock_concepts(conn, date, row["stock_code"]),
+            "raw": _json_dict(row["raw_payload"]),
+        })
+    summary = {
+        "count": len(items),
+        "buy_amount": sum(item["buy_amount"] or 0 for item in items),
+        "sell_amount": sum(item["sell_amount"] or 0 for item in items),
+        "net_buy_amount": sum(item["net_buy_amount"] or 0 for item in items),
+    }
+    return make_review_payload(date, status="ok" if items else "empty", summary=summary, items=items)
+
+
+def get_review_movement_alerts(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
+    """Return intraday movement alerts."""
+    rows = conn.execute(
+        """
+        SELECT alert_time, stock_code, stock_name, alert_type, alert_text, price, change_pct, raw_payload
+        FROM movement_alerts
+        WHERE trade_date = ?
+        ORDER BY alert_time DESC, stock_code ASC
+        """,
+        (date,),
+    ).fetchall()
+    items = [{
+        "alert_time": row["alert_time"],
+        "stock_code": row["stock_code"],
+        "stock_name": row["stock_name"],
+        "alert_type": row["alert_type"],
+        "alert_text": row["alert_text"],
+        "price": row["price"],
+        "change_pct": row["change_pct"],
+        "raw": _json_dict(row["raw_payload"]),
+    } for row in rows]
+    types = sorted({item["alert_type"] for item in items if item["alert_type"]})
+    return make_review_payload(
+        date,
+        status="ok" if items else "empty",
+        summary={"alert_count": len(items), "stock_count": len({item["stock_code"] for item in items})},
+        filters={"types": types},
+        items=items,
+    )
+
+
+def get_review_plate_rotation(
+    conn: sqlite3.Connection,
+    date: str | None = None,
+    days: int = 8,
+    top_n: int = 12,
+    plate_code: str | None = None,
+) -> dict[str, Any]:
+    """Wrap plate rotation data with selected plate detail for the review module."""
+    snapshot = get_plate_rotation_snapshot(conn, date, days=days, top_n=top_n, plate_code=plate_code)
+    items = [{"date": day, "plates": plates} for day, plates in snapshot.get("rank_by_date", {}).items()]
+    detail = snapshot.get("selected_plate")
+    result_date = snapshot.get("date") or date or ""
+    payload = make_review_payload(
+        result_date,
+        status="ok" if items else "empty",
+        summary={
+            "days": len(snapshot.get("dates") or []),
+            "top_n": top_n,
+            "selected_plate_code": (detail or {}).get("plate_code"),
+        },
+        filters={"days": days, "top_n": top_n, "plate_code": plate_code},
+        items=items,
+        warnings=[] if items else ["缺少题材轮动数据，请先运行板块轮动采集任务。"],
+    )
+    payload["detail"] = detail
+    return payload
 
 
 def get_dates(conn: sqlite3.Connection) -> list[str]:
@@ -1022,11 +1502,6 @@ def get_premarket_guide(conn: sqlite3.Connection, guide_date: str) -> dict[str, 
     result["high_position_effect"] = raw.get("high_position_effect") or {}
     result["trend_hot_status"] = raw.get("trend_hot_status") or {}
     result["next_day_strategy"] = raw.get("next_day_strategy") or {}
-    result["stock_setups"] = raw.get("stock_setups") or {
-        "pullback_watch": [],
-        "chase_risk": [],
-        "news_hot": [],
-    }
     result["hot_stocks"] = raw.get("hot_stocks") or []
     result["space_stocks"] = raw.get("space_stocks") or []
     result["focus_plates"] = _json_list(result.get("focus_plates"))

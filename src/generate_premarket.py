@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sqlite3
 from datetime import datetime, timedelta
@@ -14,7 +13,6 @@ from fetch_missing_data import DEFAULT_DB_PATH
 from premarket_analysis import (
     build_risk_points as build_diagnosis_risk_points,
     build_strategy_points,
-    classify_hot_stock_setups,
     diagnose_market_state,
 )
 
@@ -32,16 +30,6 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def _rows(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
     return [_row_to_dict(row) for row in rows]
-
-
-def _json_list(value: str | None) -> list[Any]:
-    if not value:
-        return []
-    try:
-        parsed = json.loads(value)
-    except (TypeError, json.JSONDecodeError):
-        return []
-    return parsed if isinstance(parsed, list) else []
 
 
 def _pct_text(value: float | int | None) -> str:
@@ -394,96 +382,6 @@ def _hot_stocks(conn: sqlite3.Connection, review_date: str, limit: int = 8) -> l
     ).fetchall())
 
 
-def _stock_sector_tags(conn: sqlite3.Connection, review_date: str, stock_code: str) -> list[str]:
-    tags: list[str] = []
-    rows = conn.execute(
-        """
-        select concept_tags
-        from stock_hot_ranks
-        where trade_date = ? and stock_code = ?
-        order by
-            case source when 'ths_hot' then 0 when 'shortline_hot' then 1 else 2 end,
-            rank_no asc
-        limit 3
-        """,
-        (review_date, stock_code),
-    ).fetchall()
-    for row in rows:
-        for tag in _json_list(row["concept_tags"]):
-            text = str(tag or "").strip()
-            if text and text not in tags:
-                tags.append(text)
-
-    plate_rows = conn.execute(
-        """
-        select plate_name
-        from limit_up_plate_map
-        where trade_date = ? and stock_code = ?
-        order by plate_score desc
-        limit 5
-        """,
-        (review_date, stock_code),
-    ).fetchall()
-    for row in plate_rows:
-        text = str(row["plate_name"] or "").strip()
-        if text and text not in tags:
-            tags.append(text)
-    return tags[:6]
-
-
-def _stock_setup_candidates(conn: sqlite3.Connection, review_date: str, limit: int = 40) -> list[dict[str, Any]]:
-    """Build a candidate list of popular stocks with sector tags."""
-    candidates: dict[str, dict[str, Any]] = {}
-    for item in _hot_stocks(conn, review_date, limit):
-        code = str(item.get("stock_code") or "")
-        if not code:
-            continue
-        candidates[code] = {**item, "sectors": _stock_sector_tags(conn, review_date, code)}
-
-    rows = conn.execute(
-        """
-        select rank_no, stock_code, stock_name, latest_price, change_pct,
-               hot_value, rank_change, concept_tags, source, period, list_type
-        from stock_hot_ranks
-        where trade_date = ?
-          and source in ('ths_hot', 'shortline_hot')
-          and period in ('day', 'hour')
-        order by
-          case source when 'ths_hot' then 0 when 'shortline_hot' then 1 else 2 end,
-          case period when 'day' then 0 else 1 end,
-          rank_no asc
-        limit ?
-        """,
-        (review_date, limit),
-    ).fetchall()
-    for row in rows:
-        item = _row_to_dict(row)
-        code = str(item.get("stock_code") or "")
-        if not code:
-            continue
-        tags = _json_list(item.pop("concept_tags", None))
-        existing = candidates.get(code)
-        if existing:
-            sectors = existing.get("sectors") or []
-            for tag in tags:
-                text = str(tag or "").strip()
-                if text and text not in sectors:
-                    sectors.append(text)
-            existing["sectors"] = sectors[:6]
-            continue
-        item["sectors"] = tags[:6] or _stock_sector_tags(conn, review_date, code)
-        candidates[code] = item
-
-    return sorted(
-        candidates.values(),
-        key=lambda item: (
-            item.get("rank_no") is None,
-            item.get("rank_no") or 9999,
-            -abs(float(item.get("change_pct") or 0)),
-        ),
-    )[:limit]
-
-
 def _space_stocks(conn: sqlite3.Connection, review_date: str, limit: int = 5) -> list[dict[str, Any]]:
     return _rows(conn.execute(
         """
@@ -671,36 +569,6 @@ def _build_next_day_strategy(diagnosis: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _extend_points_with_stock_setups(
-    watch_points: list[dict[str, Any]],
-    risk_points: list[dict[str, Any]],
-    stock_setups: dict[str, list[dict[str, Any]]],
-) -> None:
-    pullbacks = stock_setups.get("pullback_watch") or []
-    chase_risks = stock_setups.get("chase_risk") or []
-    news_hot = stock_setups.get("news_hot") or []
-    if pullbacks:
-        names = "、".join(item.get("stock_name") or item.get("stock_code") for item in pullbacks[:3])
-        watch_points.append({
-            "title": "大幅回撤低吸观察",
-            "reason": f"{names} 等热门股出现大幅回撤，只有板块没有退潮、个股先止跌时才看低吸。",
-            "trigger": "优先看缩量企稳、核心股先修复；继续放量杀跌就不接。",
-        })
-    if news_hot:
-        names = "、".join(item.get("stock_name") or item.get("stock_code") for item in news_hot[:3])
-        watch_points.append({
-            "title": "新闻热点快速确认",
-            "reason": f"{names} 与盘前新闻催化贴合，适合开盘先验证强度。",
-            "trigger": "竞价强、板块联动、前排主动换手时再快速确认；孤立高开不算。",
-        })
-    if chase_risks:
-        names = "、".join(item.get("stock_name") or item.get("stock_code") for item in chase_risks[:3])
-        risk_points.append({
-            "title": "今日大涨明日防追高",
-            "reason": f"{names} 等热门股今日涨幅较大，明天如果高开无承接，容易变成兑现点。",
-        })
-
-
 def _build_headline(
     focus_plates: list[dict[str, Any]],
     us_markets: list[dict[str, Any]],
@@ -745,7 +613,6 @@ def generate_premarket_guide(
         news = _news(conn, guide_date)
         announcements = _announcements(conn, resolved_review_date)
         us_markets = _us_markets(conn, guide_date)
-        stock_setups = classify_hot_stock_setups(_stock_setup_candidates(conn, resolved_review_date), news)
         market_tone = _build_market_tone(market)
         market_state = diagnose_market_state(market, high_position, trend_hot)
         watch_points = build_strategy_points(market_state, high_position, trend_hot, focus_plates, us_markets)
@@ -756,7 +623,6 @@ def generate_premarket_guide(
             if item.get("title") not in seen_risk_titles:
                 risk_points.append(item)
                 seen_risk_titles.add(item.get("title"))
-        _extend_points_with_stock_setups(watch_points, risk_points, stock_setups)
         guide = {
             "guide_date": guide_date,
             "review_date": resolved_review_date,
@@ -768,7 +634,6 @@ def generate_premarket_guide(
             "high_position_effect": high_position,
             "trend_hot_status": trend_hot,
             "next_day_strategy": _build_next_day_strategy(market_state),
-            "stock_setups": stock_setups,
             "focus_plates": focus_plates,
             "hot_stocks": hot_stocks,
             "space_stocks": space_stocks,

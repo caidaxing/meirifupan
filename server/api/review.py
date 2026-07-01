@@ -30,6 +30,13 @@ from server.services.review_queries import (
     get_recent_hot_plates_with_stocks,
     get_connection,
     get_recent_dates,
+    get_review_lhb,
+    get_review_limit_up_reasons,
+    get_review_limit_up_tiers,
+    get_review_movement_alerts,
+    get_review_plate_rotation,
+    get_review_price_tiers,
+    get_review_promotions,
     get_saved_review,
     get_seal_quality,
     get_stock_hot_ranks,
@@ -87,6 +94,84 @@ def get_review_report(date: str = Query(..., description="Trade date, e.g. 2026-
         if not review:
             raise HTTPException(status_code=404, detail=f"No generated review for date {date}.")
         return review
+    finally:
+        conn.close()
+
+
+@router.get("/api/review/limit-up-reasons")
+def get_limit_up_reasons(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
+    """Return limit-up reason groups for the review module."""
+    conn = get_connection()
+    try:
+        return get_review_limit_up_reasons(conn, date)
+    finally:
+        conn.close()
+
+
+@router.get("/api/review/limit-up-tiers")
+def get_limit_up_tiers(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
+    """Return limit-up board tiers for the review module."""
+    conn = get_connection()
+    try:
+        return get_review_limit_up_tiers(conn, date)
+    finally:
+        conn.close()
+
+
+@router.get("/api/review/price-tiers")
+def get_price_tiers(
+    date: str = Query(..., description="Trade date, e.g. 2026-06-03"),
+    days: int = Query(10, description="Number of trading days to include"),
+):
+    """Return price-change tiers for the review module."""
+    conn = get_connection()
+    try:
+        return get_review_price_tiers(conn, date, days=days)
+    finally:
+        conn.close()
+
+
+@router.get("/api/review/promotions")
+def get_promotions(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
+    """Return board promotion data for the review module."""
+    conn = get_connection()
+    try:
+        return get_review_promotions(conn, date)
+    finally:
+        conn.close()
+
+
+@router.get("/api/review/plate-rotation")
+def get_review_rotation(
+    date: str | None = Query(None, description="End date, e.g. 2026-06-16. Empty means latest date."),
+    days: int = Query(8, description="Number of trading days to include"),
+    top_n: int = Query(12, description="Top plates per day"),
+    plate_code: str | None = Query(None, description="Selected plate code"),
+):
+    """Return plate rotation data for the review module."""
+    conn = get_connection()
+    try:
+        return get_review_plate_rotation(conn, date, days=days, top_n=top_n, plate_code=plate_code)
+    finally:
+        conn.close()
+
+
+@router.get("/api/review/lhb")
+def get_lhb(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
+    """Return Dragon Tiger List rows for the review module."""
+    conn = get_connection()
+    try:
+        return get_review_lhb(conn, date)
+    finally:
+        conn.close()
+
+
+@router.get("/api/review/movement-alerts")
+def get_movement_alerts(date: str = Query(..., description="Trade date, e.g. 2026-06-03")):
+    """Return movement alerts for the review module."""
+    conn = get_connection()
+    try:
+        return get_review_movement_alerts(conn, date)
     finally:
         conn.close()
 

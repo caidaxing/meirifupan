@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from api_client import QuantAPI
 from db import MarketDB
+from fuyao_limit_up import enrich_day_data_with_fuyao, fetch_limit_up_pool, update_limit_up_reasons
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -207,7 +208,9 @@ def fetch_uplimit_data(api: QuantAPI, date: str, db: MarketDB):
             raise
         print(f"    ⚠️  Quant token 无权限或已过期，改用免费涨停池兜底: {exc}")
         day_data = fetch_akshare_uplimit_day(date)
+        _enrich_day_data_from_fuyao(date, day_data)
         db.import_uplimit_day(day_data, raw_source="akshare.stock_zt_pool_em")
+        _backfill_db_from_fuyao(date, db.db_path)
         total_stocks = sum(len(p.get("stocks", [])) for p in day_data.get("uplimit_reason") or [])
         print(f"    ✅ 免费源写入 {len(day_data.get('uplimit_reason') or [])} 个行业, {total_stocks} 只涨停股")
         print(f"  💾 已写入数据库: {db.db_path}")
@@ -253,9 +256,34 @@ def fetch_uplimit_data(api: QuantAPI, date: str, db: MarketDB):
     }
 
     db.import_uplimit_day(day_data, raw_source="api")
+    _backfill_db_from_fuyao(date, db.db_path)
     print(f"  💾 已写入数据库: {db.db_path}")
 
     return day_data
+
+
+def _enrich_day_data_from_fuyao(date: str, day_data: dict[str, Any]) -> None:
+    api_key = os.environ.get("FUYAO_API_KEY")
+    if not api_key:
+        return
+    try:
+        items = fetch_limit_up_pool(api_key, date)
+        count = enrich_day_data_with_fuyao(day_data, items)
+        print(f"    Fuyao enriched limit-up reasons: {count}")
+    except Exception as exc:
+        print(f"    Fuyao reason enrichment failed: {exc}")
+
+
+def _backfill_db_from_fuyao(date: str, db_path: str | os.PathLike[str]) -> None:
+    api_key = os.environ.get("FUYAO_API_KEY")
+    if not api_key:
+        return
+    try:
+        items = fetch_limit_up_pool(api_key, date)
+        count = update_limit_up_reasons(db_path, date, items)
+        print(f"    Fuyao backfilled limit-up reasons: {count}")
+    except Exception as exc:
+        print(f"    Fuyao reason backfill failed: {exc}")
 
 
 def main():

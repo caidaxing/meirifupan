@@ -8,6 +8,8 @@ import type {
   PremarketGuide,
   PlateRotationData,
   QuantzzDailyOverview,
+  ReviewPayload,
+  ReviewSubmoduleKey,
 } from '../types'
 
 const BASE = '/api'
@@ -25,6 +27,23 @@ export async function fetchReview(date: string, signal?: AbortSignal): Promise<R
   const res = await fetch(`${BASE}/review?date=${date}`, { signal })
   if (!res.ok) {
     throw new Error(`Failed to fetch review: ${res.statusText}`)
+  }
+  return res.json()
+}
+
+export async function fetchReviewSubmodule(
+  key: ReviewSubmoduleKey,
+  date: string,
+  params: Record<string, string | number | undefined> = {},
+  signal?: AbortSignal,
+): Promise<ReviewPayload> {
+  const query = new URLSearchParams({ date })
+  Object.entries(params).forEach(([name, value]) => {
+    if (value !== undefined) query.set(name, String(value))
+  })
+  const res = await fetch(`${BASE}/review/${key}?${query.toString()}`, { signal })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch review module ${key}: ${res.statusText}`)
   }
   return res.json()
 }

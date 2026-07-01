@@ -120,48 +120,6 @@ class PremarketAnalysisTests(unittest.TestCase):
         self.assertIn("修复观察", points[0]["reason"])
         self.assertTrue(any("热门趋势股" in item["title"] for item in points))
 
-    def test_classifies_hot_stocks_into_pullback_chase_risk_and_news_hot(self):
-        from premarket_analysis import classify_hot_stock_setups
-
-        result = classify_hot_stock_setups(
-            [
-                {
-                    "stock_code": "600001",
-                    "stock_name": "芯片核心",
-                    "change_pct": -7.6,
-                    "rank_no": 3,
-                    "sectors": ["芯片", "半导体"],
-                },
-                {
-                    "stock_code": "600002",
-                    "stock_name": "机器人强势",
-                    "change_pct": 9.8,
-                    "rank_no": 4,
-                    "sectors": ["机器人"],
-                },
-                {
-                    "stock_code": "600003",
-                    "stock_name": "液冷前排",
-                    "change_pct": 3.2,
-                    "rank_no": 9,
-                    "sectors": ["液冷", "算力"],
-                },
-            ],
-            [
-                {
-                    "title": "英伟达新平台推动液冷和算力基础设施需求",
-                    "content": "液冷链条受到资金关注",
-                }
-            ],
-        )
-
-        self.assertEqual("芯片核心", result["pullback_watch"][0]["stock_name"])
-        self.assertIn("低吸观察", result["pullback_watch"][0]["action_hint"])
-        self.assertEqual("机器人强势", result["chase_risk"][0]["stock_name"])
-        self.assertIn("不追", result["chase_risk"][0]["action_hint"])
-        self.assertEqual("液冷前排", result["news_hot"][0]["stock_name"])
-        self.assertIn("新闻催化", result["news_hot"][0]["reason"])
-
 
 if __name__ == "__main__":
     unittest.main()

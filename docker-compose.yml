@@ -16,6 +16,7 @@ services:
       - QUANTZZ_TOKEN_FILE=${QUANTZZ_TOKEN_FILE:-/app/config/quantzz_token.json}
       - QUANTZZ_EMAIL=${QUANTZZ_EMAIL:-}
       - QUANTZZ_PASSWORD=${QUANTZZ_PASSWORD:-}
+      - FUYAO_API_KEY=${FUYAO_API_KEY:-}
     restart: unless-stopped
 
   scheduler:
@@ -37,4 +38,5 @@ services:
       - QUANTZZ_TOKEN_FILE=${QUANTZZ_TOKEN_FILE:-/app/config/quantzz_token.json}
       - QUANTZZ_EMAIL=${QUANTZZ_EMAIL:-}
       - QUANTZZ_PASSWORD=${QUANTZZ_PASSWORD:-}
+      - FUYAO_API_KEY=${FUYAO_API_KEY:-}
     restart: unless-stopped

@@ -38,7 +38,6 @@ export function PremarketGuideView({ data, loading, error }: Props) {
   const highPosition = data.high_position_effect || {}
   const trendHot = data.trend_hot_status || {}
   const strategy = data.next_day_strategy || {}
-  const stockSetups = data.stock_setups || { pullback_watch: [], chase_risk: [], news_hot: [] }
   const topUs = data.us_markets.slice(0, 6)
 
   return (
@@ -97,15 +96,6 @@ export function PremarketGuideView({ data, loading, error }: Props) {
           <MiniList title="可以做" items={strategy.should_do || []} />
           <MiniList title="先不做" items={strategy.avoid || []} />
           <MiniList title="确认信号" items={strategy.confirmation || []} />
-        </div>
-      </section>
-
-      <section className="premarket-panel">
-        <PanelHead title="热门个股分组" sub="回撤 / 风险 / 新闻" />
-        <div className="premarket-strategy-grid">
-          <StockSetupList title="大幅回撤" empty="暂无明显回撤热门股" items={stockSetups.pullback_watch} />
-          <StockSetupList title="别追高" empty="暂无明显追高风险股" items={stockSetups.chase_risk} />
-          <StockSetupList title="新闻催化" empty="暂无新闻强关联个股" items={stockSetups.news_hot} />
         </div>
       </section>
 
@@ -224,34 +214,6 @@ function MiniList({ title, items }: { title: string; items: string[] }) {
       {items.length === 0 ? (
         <span>-</span>
       ) : items.map(item => <span key={item}>{item}</span>)}
-    </div>
-  )
-}
-
-function StockSetupList({
-  title,
-  empty,
-  items,
-}: {
-  title: string
-  empty: string
-  items: NonNullable<PremarketGuide['stock_setups']>['pullback_watch']
-}) {
-  return (
-    <div className="premarket-mini-list premarket-stock-setup-list">
-      <strong>{title}</strong>
-      {items.length === 0 ? (
-        <span>{empty}</span>
-      ) : items.slice(0, 5).map(item => (
-        <div className="premarket-stock-setup" key={`${title}-${item.stock_code || item.stock_name}`}>
-          <div>
-            <b>{item.stock_name}</b>
-            <span>{item.stock_code || '-'}{item.sectors?.length ? ` · ${item.sectors.slice(0, 2).join(' / ')}` : ''}</span>
-          </div>
-          <em className={toneClass(item.change_pct)}>{fmtPct(item.change_pct)}</em>
-          {item.action_hint && <p>{item.action_hint}</p>}
-        </div>
-      ))}
     </div>
   )
 }

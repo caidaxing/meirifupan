@@ -53,8 +53,18 @@ def health():
 
 
 # Production: serve frontend static files if web/dist exists
-web_dist = os.path.join(os.path.dirname(__file__), "..", "web", "dist")
-if os.path.exists(web_dist):
+web_dist = Path(__file__).resolve().parent.parent / "web" / "dist"
+if web_dist.exists():
+    from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
-    app.mount("/", StaticFiles(directory=web_dist, html=True))
+    assets_dir = web_dist / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_frontend(full_path: str):
+        requested = web_dist / full_path
+        if full_path and requested.is_file():
+            return FileResponse(requested)
+        return FileResponse(web_dist / "index.html")

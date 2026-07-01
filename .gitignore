@@ -1,5 +1,8 @@
 # Dependencies
 web/node_modules/
+.venv/
+.npm-cache/
+.codex-runtime/
 
 # Build output
 web/dist/
@@ -13,6 +16,7 @@ data/
 reports/
 logs/
 .run/
+.server-downloads/
 
 # Sensitive config
 .env

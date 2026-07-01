@@ -11,6 +11,7 @@ import {
   fetchHot,
   fetchHotDates,
   fetchLatestJob,
+  fetchReviewSubmodule,
 } from '../api/client'
 import type {
   ReviewData,
@@ -22,6 +23,8 @@ import type {
   PremarketGuide,
   PlateRotationData,
   QuantzzDailyOverview,
+  ReviewPayload,
+  ReviewSubmoduleKey,
 } from '../types'
 
 export function useReview(date: string) {
@@ -68,6 +71,36 @@ export function useReview(date: string) {
   }, [date])
 
   return { data, trend, marketTrend, plateRotation, loading, error }
+}
+
+export function useReviewSubmodule(
+  key: ReviewSubmoduleKey,
+  date: string,
+  params: Record<string, string | number | undefined> = {},
+) {
+  const [data, setData] = useState<ReviewPayload | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!date) {
+      setData(null)
+      setLoading(false)
+      setError(null)
+      return
+    }
+    const ctrl = new AbortController()
+    setLoading(true)
+    fetchReviewSubmodule(key, date, params, ctrl.signal)
+      .then(d => { setData(d); setError(null) })
+      .catch(e => {
+        if (e.name !== 'AbortError') setError(e.message)
+      })
+      .finally(() => setLoading(false))
+    return () => ctrl.abort()
+  }, [key, date, JSON.stringify(params)])
+
+  return { data, loading, error }
 }
 
 export function useDates() {
