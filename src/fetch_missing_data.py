@@ -11,6 +11,7 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db import MarketDB
+from utils import clean, compact_time, stock_code, to_float, to_int, to_text
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,64 +36,6 @@ INDEX_SYMBOLS = {
     "sz399006": ("399006.SZ", "创业板指"),
     "bj899050": ("899050.BJ", "北证50"),
 }
-
-
-def _is_blank(value: Any) -> bool:
-    if value is None:
-        return True
-    try:
-        return value != value
-    except Exception:
-        return False
-
-
-def _clean(value: Any) -> Any:
-    if _is_blank(value):
-        return None
-    if hasattr(value, "item"):
-        try:
-            return _clean(value.item())
-        except Exception:
-            pass
-    return value
-
-
-def _num(value: Any) -> float | None:
-    value = _clean(value)
-    if value in ("", "-", "--", None):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _int(value: Any) -> int | None:
-    value = _num(value)
-    return int(value) if value is not None else None
-
-
-def _text(value: Any) -> str | None:
-    value = _clean(value)
-    if value is None:
-        return None
-    return str(value)
-
-
-def _stock_code(value: Any) -> str:
-    code = str(value or "").strip()
-    if code.lower().startswith(("sh", "sz", "bj")):
-        code = code[2:]
-    return code.upper()
-
-
-def _compact_time(value: Any) -> str | None:
-    text = _text(value)
-    if not text:
-        return None
-    if len(text) == 6 and text.isdigit():
-        return f"{text[:2]}:{text[2:4]}:{text[4:]}"
-    return text
 
 
 def _date_for_akshare(date: str) -> str:
@@ -136,8 +79,8 @@ def import_market_breadth_and_hot_stocks(db: MarketDB, trade_date: str, spot_df:
     if spot_df is None or spot_df.empty:
         return 0, 0
 
-    change = spot_df["涨跌幅"].apply(_num)
-    amount = spot_df["成交额"].apply(_num)
+    change = spot_df["涨跌幅"].apply(to_float)
+    amount = spot_df["成交额"].apply(to_float)
     valid_change = change.dropna()
     snapshot = {
         "trade_date": trade_date,
@@ -156,19 +99,19 @@ def import_market_breadth_and_hot_stocks(db: MarketDB, trade_date: str, spot_df:
     breadth_count = db.import_market_breadth(trade_date, snapshot)
 
     ranked = spot_df.copy()
-    ranked["_amount"] = ranked["成交额"].apply(_num)
+    ranked["_amount"] = ranked["成交额"].apply(to_float)
     ranked = ranked.sort_values("_amount", ascending=False).head(100)
     hot_records = []
     for rank_no, row in enumerate(dataframe_records(ranked), start=1):
         hot_records.append({
             "rank_no": rank_no,
-            "stock_code": _stock_code(row.get("代码")),
-            "stock_name": _text(row.get("名称")),
-            "latest_price": _num(row.get("最新价")),
-            "change_pct": _num(row.get("涨跌幅")),
-            "change_amount": _num(row.get("涨跌额")),
-            "amount": _num(row.get("成交额")),
-            "turnover_rate": _num(row.get("换手率")),
+            "stock_code": stock_code(row.get("代码")),
+            "stock_name": to_text(row.get("名称")),
+            "latest_price": to_float(row.get("最新价")),
+            "change_pct": to_float(row.get("涨跌幅")),
+            "change_amount": to_float(row.get("涨跌额")),
+            "amount": to_float(row.get("成交额")),
+            "turnover_rate": to_float(row.get("换手率")),
             "source": "spot_amount_rank",
             "raw_payload": row,
         })
@@ -183,19 +126,19 @@ def fetch_limit_down_records(trade_date: str) -> list[dict[str, Any]]:
     records = []
     for row in dataframe_records(df):
         records.append({
-            "stock_code": _stock_code(row.get("代码")),
-            "stock_name": _text(row.get("名称")),
-            "latest_price": _num(row.get("最新价")),
-            "change_pct": _num(row.get("涨跌幅")),
-            "amount": _num(row.get("成交额")),
-            "circulation_value": _num(row.get("流通市值")),
-            "total_market_cap": _num(row.get("总市值")),
-            "turnover_rate": _num(row.get("换手率")),
-            "seal_amount": _num(row.get("封单资金")),
-            "last_limit_down_time": _compact_time(row.get("最后封板时间")),
-            "limit_down_days": _int(row.get("连续跌停")),
-            "open_count": _int(row.get("开板次数")),
-            "industry": _text(row.get("所属行业")),
+            "stock_code": stock_code(row.get("代码")),
+            "stock_name": to_text(row.get("名称")),
+            "latest_price": to_float(row.get("最新价")),
+            "change_pct": to_float(row.get("涨跌幅")),
+            "amount": to_float(row.get("成交额")),
+            "circulation_value": to_float(row.get("流通市值")),
+            "total_market_cap": to_float(row.get("总市值")),
+            "turnover_rate": to_float(row.get("换手率")),
+            "seal_amount": to_float(row.get("封单资金")),
+            "last_limit_down_time": compact_time(row.get("最后封板时间")),
+            "limit_down_days": to_int(row.get("连续跌停")),
+            "open_count": to_int(row.get("开板次数")),
+            "industry": to_text(row.get("所属行业")),
             "raw": row,
         })
     return records
@@ -208,20 +151,20 @@ def fetch_broken_limit_up_records(trade_date: str) -> list[dict[str, Any]]:
     records = []
     for row in dataframe_records(df):
         records.append({
-            "stock_code": _stock_code(row.get("代码")),
-            "stock_name": _text(row.get("名称")),
-            "latest_price": _num(row.get("最新价")),
-            "change_pct": _num(row.get("涨跌幅")),
-            "limit_up_price": _num(row.get("涨停价")),
-            "amount": _num(row.get("成交额")),
-            "circulation_value": _num(row.get("流通市值")),
-            "total_market_cap": _num(row.get("总市值")),
-            "turnover_rate": _num(row.get("换手率")),
-            "first_limit_up_time": _compact_time(row.get("首次封板时间")),
-            "open_count": _int(row.get("炸板次数")),
-            "limit_up_stat": _text(row.get("涨停统计")),
-            "amplitude": _num(row.get("振幅")),
-            "industry": _text(row.get("所属行业")),
+            "stock_code": stock_code(row.get("代码")),
+            "stock_name": to_text(row.get("名称")),
+            "latest_price": to_float(row.get("最新价")),
+            "change_pct": to_float(row.get("涨跌幅")),
+            "limit_up_price": to_float(row.get("涨停价")),
+            "amount": to_float(row.get("成交额")),
+            "circulation_value": to_float(row.get("流通市值")),
+            "total_market_cap": to_float(row.get("总市值")),
+            "turnover_rate": to_float(row.get("换手率")),
+            "first_limit_up_time": compact_time(row.get("首次封板时间")),
+            "open_count": to_int(row.get("炸板次数")),
+            "limit_up_stat": to_text(row.get("涨停统计")),
+            "amplitude": to_float(row.get("振幅")),
+            "industry": to_text(row.get("所属行业")),
             "raw": row,
         })
     return records
@@ -235,15 +178,15 @@ def fetch_lhb_records(trade_date: str) -> list[dict[str, Any]]:
     records = []
     for row in dataframe_records(df):
         records.append({
-            "stock_code": _stock_code(row.get("代码")),
-            "stock_name": _text(row.get("名称")),
-            "reason": _text(row.get("上榜原因")),
-            "buy_amount": _num(row.get("龙虎榜买入额")),
-            "sell_amount": _num(row.get("龙虎榜卖出额")),
-            "net_buy_amount": _num(row.get("龙虎榜净买额")),
-            "close_price": _num(row.get("收盘价")),
-            "change_pct": _num(row.get("涨跌幅")),
-            "turnover_rate": _num(row.get("换手率")),
+            "stock_code": stock_code(row.get("代码")),
+            "stock_name": to_text(row.get("名称")),
+            "reason": to_text(row.get("上榜原因")),
+            "buy_amount": to_float(row.get("龙虎榜买入额")),
+            "sell_amount": to_float(row.get("龙虎榜卖出额")),
+            "net_buy_amount": to_float(row.get("龙虎榜净买额")),
+            "close_price": to_float(row.get("收盘价")),
+            "change_pct": to_float(row.get("涨跌幅")),
+            "turnover_rate": to_float(row.get("换手率")),
             "raw": row,
         })
     return records
@@ -261,11 +204,11 @@ def fetch_index_daily_records(trade_date: str) -> list[dict[str, Any]]:
         if matched.empty:
             continue
         row = dataframe_records(matched.tail(1))[0]
-        close_price = _num(row.get("close"))
+        close_price = to_float(row.get("close"))
         prev_df = df[df["date"].astype(str) < trade_date].tail(1)
         change_pct = None
         if close_price is not None and not prev_df.empty:
-            prev_close = _num(dataframe_records(prev_df)[0].get("close"))
+            prev_close = to_float(dataframe_records(prev_df)[0].get("close"))
             if prev_close:
                 change_pct = round((close_price - prev_close) / prev_close * 100, 2)
         records.append({
@@ -273,10 +216,10 @@ def fetch_index_daily_records(trade_date: str) -> list[dict[str, Any]]:
             "name": index_name,
             "last_px": close_price,
             "px_change_rate": change_pct,
-            "amount": _num(row.get("volume")),
-            "open": _num(row.get("open")),
-            "high": _num(row.get("high")),
-            "low": _num(row.get("low")),
+            "amount": to_float(row.get("volume")),
+            "open": to_float(row.get("open")),
+            "high": to_float(row.get("high")),
+            "low": to_float(row.get("low")),
             "source_symbol": symbol,
             "raw": row,
         })
@@ -290,19 +233,19 @@ def fetch_market_hot_records() -> list[dict[str, Any]]:
     df = df.sort_values("板块异动总次数", ascending=False).head(100)
     records = []
     for rank_no, row in enumerate(dataframe_records(df), start=1):
-        name = _text(row.get("板块名称"))
+        name = to_text(row.get("板块名称"))
         if not name:
             continue
         records.append({
             "item_key": name,
             "item_name": name,
-            "score": _num(row.get("板块异动总次数")),
+            "score": to_float(row.get("板块异动总次数")),
             "rank_no": rank_no,
-            "change_pct": _num(row.get("涨跌幅")),
-            "main_net_inflow": _num(row.get("主力净流入")),
-            "leading_stock_code": _stock_code(row.get("板块异动最频繁个股及所属类型-股票代码")),
-            "leading_stock_name": _text(row.get("板块异动最频繁个股及所属类型-股票名称")),
-            "leading_type": _text(row.get("板块异动最频繁个股及所属类型-买卖方向")),
+            "change_pct": to_float(row.get("涨跌幅")),
+            "main_net_inflow": to_float(row.get("主力净流入")),
+            "leading_stock_code": stock_code(row.get("板块异动最频繁个股及所属类型-股票代码")),
+            "leading_stock_name": to_text(row.get("板块异动最频繁个股及所属类型-股票名称")),
+            "leading_type": to_text(row.get("板块异动最频繁个股及所属类型-买卖方向")),
             "raw": row,
         })
     return records
@@ -312,9 +255,9 @@ def _parse_change_info(info: Any) -> tuple[float | None, float | None, float | N
     parts = str(info or "").split(",")
     if len(parts) < 4:
         return None, None, None
-    price = _num(parts[1])
-    change_pct = _num(parts[2])
-    amount = _num(parts[3])
+    price = to_float(parts[1])
+    change_pct = to_float(parts[2])
+    amount = to_float(parts[3])
     if change_pct is not None and abs(change_pct) < 1:
         change_pct = change_pct * 100
     return price, change_pct, amount
@@ -332,21 +275,21 @@ def fetch_movement_records(limit_per_type: int = 80) -> list[dict[str, Any]]:
             print(f"  movement {movement_type} failed: {exc}")
             continue
         for row in dataframe_records(df.head(limit_per_type)):
-            stock_code = _stock_code(row.get("代码"))
-            alert_time = _text(row.get("时间"))
-            if not stock_code or not alert_time:
+            code = stock_code(row.get("代码"))
+            alert_time = to_text(row.get("时间"))
+            if not code or not alert_time:
                 continue
-            key = (movement_type, alert_time, stock_code)
+            key = (movement_type, alert_time, code)
             if key in seen:
                 continue
             seen.add(key)
             price, change_pct, amount = _parse_change_info(row.get("相关信息"))
             records.append({
                 "alert_time": alert_time,
-                "stock_code": stock_code,
-                "stock_name": _text(row.get("名称")),
+                "stock_code": code,
+                "stock_name": to_text(row.get("名称")),
                 "alert_type": movement_type,
-                "alert_text": _text(row.get("板块")),
+                "alert_text": to_text(row.get("板块")),
                 "price": price,
                 "change_pct": change_pct,
                 "amount": amount,
@@ -413,18 +356,18 @@ def fetch_stock_kline_records(stock_code: str, start_date: str, end_date: str) -
         )
     records = []
     for row in dataframe_records(df):
-        trade_date = _text(row.get("日期") or row.get("date"))
+        trade_date = to_text(row.get("日期") or row.get("date"))
         if not trade_date:
             continue
         records.append({
             "trade_date": trade_date,
-            "open_price": _num(row.get("开盘") or row.get("open")),
-            "high_price": _num(row.get("最高") or row.get("high")),
-            "low_price": _num(row.get("最低") or row.get("low")),
-            "close_price": _num(row.get("收盘") or row.get("close")),
-            "volume": _num(row.get("成交量") or row.get("volume")),
-            "amount": _num(row.get("成交额") or row.get("amount")),
-            "change_pct": _num(row.get("涨跌幅")),
+            "open_price": to_float(row.get("开盘") or row.get("open")),
+            "high_price": to_float(row.get("最高") or row.get("high")),
+            "low_price": to_float(row.get("最低") or row.get("low")),
+            "close_price": to_float(row.get("收盘") or row.get("close")),
+            "volume": to_float(row.get("成交量") or row.get("volume")),
+            "amount": to_float(row.get("成交额") or row.get("amount")),
+            "change_pct": to_float(row.get("涨跌幅")),
             "raw": row,
         })
     return records

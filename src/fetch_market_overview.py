@@ -12,13 +12,14 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db import MarketDB
-from fetch_missing_data import DEFAULT_DB_PATH, _num
+from fetch_missing_data import DEFAULT_DB_PATH
+from utils import to_float
 
 
 def _trade_amount_from_flow(row: dict[str, Any]) -> float | None:
     """Estimate full-market turnover from net flow amount and net-flow ratio."""
-    net_amount = _num(row.get("主力净流入-净额"))
-    net_ratio = _num(row.get("主力净流入-净占比"))
+    net_amount = to_float(row.get("主力净流入-净额"))
+    net_ratio = to_float(row.get("主力净流入-净占比"))
     if net_amount is None or not net_ratio:
         return None
     return abs(net_amount) / abs(net_ratio / 100)

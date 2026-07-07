@@ -13,6 +13,7 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db import MarketDB
+from utils import clean, to_float
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -35,32 +36,6 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
-
-
-def _clean(value: Any) -> Any:
-    if value is None:
-        return None
-    try:
-        if value != value:
-            return None
-    except Exception:
-        pass
-    if hasattr(value, "item"):
-        try:
-            return _clean(value.item())
-        except Exception:
-            pass
-    return value
-
-
-def _num(value: Any) -> float | None:
-    value = _clean(value)
-    if value in ("", "-", "--", None):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _date_for_api(date_text: str) -> str:
@@ -230,7 +205,7 @@ def _records_from_ths_frame(
         trade_date = str(row.get("日期") or "")
         if not trade_date or trade_date > end_date:
             continue
-        close_price = _num(row.get("收盘价"))
+        close_price = to_float(row.get("收盘价"))
         change_pct = None
         if prev_close and close_price is not None:
             change_pct = round((close_price - prev_close) / prev_close * 100, 2)
@@ -242,13 +217,13 @@ def _records_from_ths_frame(
                 "board_type": board_type,
                 "source": source,
                 "trade_date": trade_date,
-                "open_price": _num(row.get("开盘价")),
-                "high_price": _num(row.get("最高价")),
-                "low_price": _num(row.get("最低价")),
+                "open_price": to_float(row.get("开盘价")),
+                "high_price": to_float(row.get("最高价")),
+                "low_price": to_float(row.get("最低价")),
                 "close_price": close_price,
                 "change_pct": change_pct,
-                "volume": _num(row.get("成交量")),
-                "amount": _num(row.get("成交额")),
+                "volume": to_float(row.get("成交量")),
+                "amount": to_float(row.get("成交额")),
                 "raw_payload": {
                     "matched_name": matched_name,
                     "board_type": board_type,

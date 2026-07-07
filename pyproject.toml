@@ -1,0 +1,25 @@
+[project]
+name = "a-stock-review"
+version = "0.1.0"
+description = "A股短线复盘系统 - 涨停数据爬取、每日复盘看板、盘前分析"
+requires-python = ">=3.12"
+
+dependencies = [
+    "akshare>=1.17.0",
+    "pandas>=2.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+agent = [
+    "langchain-anthropic>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langgraph>=0.4.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

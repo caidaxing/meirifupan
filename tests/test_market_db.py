@@ -1,6 +1,8 @@
+import os
 import sqlite3
 import sys
 import tempfile
+import types
 import unittest
 from datetime import date, datetime
 from pathlib import Path
@@ -43,6 +45,12 @@ class MarketDbTests(unittest.TestCase):
             "stock_announcements",
             "us_stock_quotes",
             "premarket_guides",
+            "fuyao_limit_up_pool",
+            "fuyao_limit_up_ladder",
+            "fuyao_anomaly_reasons",
+            "fuyao_ths_index_catalog",
+            "fuyao_ths_index_constituents",
+            "fuyao_stock_snapshots",
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -89,17 +97,128 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual("2026-06-05", job["trade_date"])
         self.assertEqual("生成复盘", job["details"]["steps"][0]["name"])
 
+    def test_import_fuyao_limit_up_pool_keeps_provider_fields_and_updates_main_event(self):
+        from db import MarketDB
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            db = MarketDB(db_path)
+            db.init_schema()
+            db.import_uplimit_day(
+                {
+                    "date": "2026-06-30",
+                    "uplimit_reason": [
+                        {
+                            "plate_code": "akshare_贵金属",
+                            "plate_name": "贵金属",
+                            "stocks": [
+                                {
+                                    "stock_code": "000603",
+                                    "stock_name": "盛达资源",
+                                    "reason": "贵金属",
+                                }
+                            ],
+                        }
+                    ],
+                    "uplimit_hot": [["贵金属", "akshare_贵金属", 1]],
+                },
+                raw_source="test",
+            )
+
+            count = db.import_fuyao_limit_up_pool(
+                "2026-06-30",
+                [
+                    {
+                        "thscode": "000603.SZ",
+                        "ticker": "000603",
+                        "name": "盛达资源",
+                        "last_price": 15.66,
+                        "price_change_ratio_pct": 10.0,
+                        "limit_up_reason": "中报预增+白银+贵金属涨价+技改产能释放",
+                        "continue_day_text": "1板",
+                        "continue_day_cnt": 1,
+                        "limit_up_time": "09:35",
+                        "seal_money": 123456789,
+                        "max_seal_money": 234567890,
+                        "is_new": False,
+                        "is_st": False,
+                    }
+                ],
+            )
+            db.close()
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            fuyao_row = conn.execute(
+                """
+                select thscode, ticker, stock_name, limit_up_reason, max_seal_money, is_new, is_st
+                from fuyao_limit_up_pool
+                where trade_date = '2026-06-30' and ticker = '000603'
+                """
+            ).fetchone()
+            event_row = conn.execute(
+                """
+                select stock_price, reason, up_limit_keep_times, up_limit_time, fengdan_money
+                from limit_up_events
+                where trade_date = '2026-06-30' and stock_code = '000603'
+                """
+            ).fetchone()
+            conn.close()
+
+        self.assertEqual(1, count)
+        self.assertEqual("000603.SZ", fuyao_row["thscode"])
+        self.assertEqual("盛达资源", fuyao_row["stock_name"])
+        self.assertEqual("中报预增+白银+贵金属涨价+技改产能释放", fuyao_row["limit_up_reason"])
+        self.assertEqual(234567890, fuyao_row["max_seal_money"])
+        self.assertEqual(0, fuyao_row["is_new"])
+        self.assertEqual(0, fuyao_row["is_st"])
+        self.assertEqual(15.66, event_row["stock_price"])
+        self.assertEqual("中报预增+白银+贵金属涨价+技改产能释放", event_row["reason"])
+        self.assertEqual(1, event_row["up_limit_keep_times"])
+        self.assertEqual("09:35:00", event_row["up_limit_time"])
+        self.assertEqual(123456789, event_row["fengdan_money"])
+
     def test_scheduler_next_run_time_rolls_to_tomorrow_after_run_time(self):
-        from daily_scheduler import next_named_run_time, next_run_time
+        from daily_scheduler import next_interval_run_time, next_named_run_time, next_run_time
 
         before = datetime(2026, 6, 8, 17, 0)
         after = datetime(2026, 6, 8, 18, 0)
+        intraday = datetime(2026, 6, 8, 10, 5, 33)
 
         self.assertEqual(datetime(2026, 6, 8, 17, 30), next_run_time("17:30", before))
         self.assertEqual(datetime(2026, 6, 9, 17, 30), next_run_time("17:30", after))
+        self.assertEqual(datetime(2026, 6, 8, 10, 10), next_interval_run_time(10, intraday))
         self.assertEqual(
             ("premarket_update", datetime(2026, 6, 9, 8, 30)),
             next_named_run_time({"premarket_update": "08:30", "daily_update": "17:30"}, after),
+        )
+        self.assertEqual(
+            ("news_update", datetime(2026, 6, 8, 18, 10)),
+            next_named_run_time(
+                {"daily_update": "17:30"},
+                after,
+                interval_schedule={"news_update": 10},
+            ),
+        )
+
+    def test_scheduler_collects_all_tasks_due_at_same_time(self):
+        from daily_scheduler import due_interval_task_names, due_task_names
+
+        planning_now = datetime(2026, 6, 8, 17, 25)
+        now = datetime(2026, 6, 8, 17, 30)
+        self.assertEqual(
+            ["announcements_update", "daily_update"],
+            due_task_names(
+                {
+                    "announcements_update": ["17:30", "22:00"],
+                    "daily_update": ["17:30"],
+                },
+                target=now,
+            ),
+        )
+        self.assertEqual(
+            ["news_update"],
+            due_interval_task_names({"news_update": 10}, target=now, now=planning_now),
         )
 
     def test_daily_update_records_missing_token_failure(self):
@@ -131,6 +250,42 @@ class MarketDbTests(unittest.TestCase):
         self.assertIsNotNone(job)
         self.assertEqual("failed", job["status"])
         self.assertIn("未找到 token", job["message"])
+
+    def test_daily_update_fuyao_step_skips_when_api_key_missing(self):
+        import daily_update
+
+        original = os.environ.pop("FUYAO_API_KEY", None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                result = daily_update._fetch_fuyao(str(Path(tmp) / "market.db"), "2026-06-30")
+        finally:
+            if original is not None:
+                os.environ["FUYAO_API_KEY"] = original
+
+        self.assertEqual("未配置 FUYAO_API_KEY", result["skipped"])
+
+    def test_daily_update_premarket_external_uses_trade_date_as_review_date(self):
+        import daily_update
+
+        calls = []
+        original = daily_update.collect_premarket_data
+        daily_update.collect_premarket_data = lambda guide_date, review_date, db_path: calls.append(
+            (guide_date, review_date, db_path)
+        ) or {
+            "guide_date": guide_date,
+            "review_date": review_date,
+            "news": 1,
+            "announcements": 2,
+            "us_quotes": 3,
+        }
+        try:
+            result = daily_update._fetch_premarket_external("/tmp/market.db", "2026-07-03")
+        finally:
+            daily_update.collect_premarket_data = original
+
+        self.assertEqual("2026-07-03", calls[0][1])
+        self.assertEqual("/tmp/market.db", calls[0][2])
+        self.assertEqual(2, result["announcements"])
 
     def test_import_plate_index_daily_keeps_real_board_ohlc(self):
         from db import MarketDB
@@ -2215,6 +2370,52 @@ class MarketDbTests(unittest.TestCase):
         self.assertEqual("财联社6月10日电，韩国KOSPI指数跌超6%，跌破7600点", record["title"])
         self.assertIn("SK海力士", record["content"])
         self.assertIn("2395722", record["url"])
+
+    def test_fetch_news_records_collects_all_sources_even_when_cls_is_full(self):
+        import fetch_premarket
+
+        original_akshare = sys.modules.get("akshare")
+        original_cls = fetch_premarket.fetch_cls_news_records
+        original_timeout = fetch_premarket.call_with_timeout
+
+        def rows(items):
+            return types.SimpleNamespace(
+                empty=False,
+                to_dict=lambda orient: items,
+            )
+
+        fake_akshare = types.SimpleNamespace(
+            stock_info_global_em=lambda: rows([
+                {"标题": "东财全球快讯一", "发布时间": "2026-06-10 07:10:00", "内容": "东财内容"},
+                {"标题": "重复标题", "发布时间": "2026-06-10 07:11:00"},
+            ]),
+            stock_info_global_sina=lambda: rows([
+                {"标题": "新浪财经新闻一", "时间": "2026-06-10 07:20:00"},
+            ]),
+            news_cctv=lambda date: rows([
+                {"标题": "央视新闻联播一", "日期": date},
+            ]),
+        )
+
+        fetch_premarket.fetch_cls_news_records = lambda limit=40: [
+            {"source": "cls", "title": "财联社快讯一", "published_at": "2026-06-10 08:00:00"},
+            {"source": "cls", "title": "重复标题", "published_at": "2026-06-10 08:01:00"},
+        ][:limit]
+        fetch_premarket.call_with_timeout = lambda fn, seconds=18: fn()
+        sys.modules["akshare"] = fake_akshare
+        try:
+            records = fetch_premarket.fetch_news_records("2026-06-10", limit=2)
+        finally:
+            fetch_premarket.fetch_cls_news_records = original_cls
+            fetch_premarket.call_with_timeout = original_timeout
+            if original_akshare is None:
+                sys.modules.pop("akshare", None)
+            else:
+                sys.modules["akshare"] = original_akshare
+
+        self.assertEqual({"cls", "eastmoney", "sina", "cctv"}, {r["source"] for r in records})
+        self.assertEqual(5, len(records))
+        self.assertEqual(1, sum(1 for r in records if r["title"] == "重复标题"))
 
     def test_parse_tencent_us_quote_line_extracts_core_fields(self):
         from fetch_premarket import _parse_tencent_us_quote_line

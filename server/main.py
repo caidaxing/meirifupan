@@ -4,22 +4,37 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from server.api.dates import router as dates_router
-from server.api.review import router as review_router
-from server.services.review_queries import DB_PATH
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-app = FastAPI(title="发家致富 API", description="A股复盘系统后端接口")
+from server.api.auth import router as auth_router
+from server.api.dates import router as dates_router
+from server.api.review import router as review_router
+from server.services.review_queries import DB_PATH
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """Startup: ensure DB schema is up-to-date. Shutdown: nothing to clean up."""
+    from db import MarketDB
+
+    db = MarketDB(DB_PATH)
+    try:
+        db.init_schema()
+    finally:
+        db.close()
+    yield
+
+
+app = FastAPI(title="发家致富 API", description="A股复盘系统后端接口", lifespan=lifespan)
 
 # CORS - allow all origins for development
 app.add_middleware(
@@ -30,20 +45,9 @@ app.add_middleware(
 )
 
 # Register routers
+app.include_router(auth_router)
 app.include_router(dates_router)
 app.include_router(review_router)
-
-
-@app.on_event("startup")
-def ensure_database_schema():
-    """Ensure old deployed databases have the latest columns."""
-    from db import MarketDB
-
-    db = MarketDB(DB_PATH)
-    try:
-        db.init_schema()
-    finally:
-        db.close()
 
 
 @app.get("/api/health")
@@ -58,6 +62,7 @@ if web_dist.exists():
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
+    no_cache_headers = {"Cache-Control": "no-store"}
     assets_dir = web_dist / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
@@ -66,5 +71,5 @@ if web_dist.exists():
     def serve_frontend(full_path: str):
         requested = web_dist / full_path
         if full_path and requested.is_file():
-            return FileResponse(requested)
-        return FileResponse(web_dist / "index.html")
+            return FileResponse(requested, headers=no_cache_headers)
+        return FileResponse(web_dist / "index.html", headers=no_cache_headers)

@@ -13,6 +13,7 @@ from typing import Any, Callable
 from db import MarketDB
 from fetch_missing_data import DEFAULT_DB_PATH
 from generate_premarket import resolve_review_date
+from utils import is_blank, to_float, to_text
 
 
 US_FAMOUS_SECTORS = ["科技类", "汽车能源类", "媒体类", "金融类", "医药食品类", "制造零售类"]
@@ -57,54 +58,14 @@ def call_with_timeout(fn: Callable[[], Any], seconds: int = 18) -> Any:
         signal.signal(signal.SIGALRM, old_handler)
 
 
-def _is_blank(value: Any) -> bool:
-    if value is None:
-        return True
-    try:
-        return value != value
-    except Exception:
-        return False
-
-
-def _clean(value: Any) -> Any:
-    if _is_blank(value):
-        return None
-    if hasattr(value, "item"):
-        try:
-            return _clean(value.item())
-        except Exception:
-            pass
-    return value
-
-
-def _text(value: Any) -> str | None:
-    value = _clean(value)
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _num(value: Any) -> float | None:
-    value = _clean(value)
-    if value in ("", "-", "--", None):
-        return None
-    if isinstance(value, str):
-        value = value.replace("%", "").replace(",", "").strip()
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _first(row: dict[str, Any], names: list[str]) -> Any:
     for name in names:
-        if name in row and not _is_blank(row.get(name)):
+        if name in row and not is_blank(row.get(name)):
             return row.get(name)
     lowered = {str(k).lower(): k for k in row.keys()}
     for name in names:
         key = lowered.get(name.lower())
-        if key is not None and not _is_blank(row.get(key)):
+        if key is not None and not is_blank(row.get(key)):
             return row.get(key)
     return None
 
@@ -120,7 +81,7 @@ def _ak_date(value: str) -> str:
 
 
 def _code(value: Any) -> str | None:
-    text = _text(value)
+    text = to_text(value)
     if not text:
         return None
     text = text.upper().replace("SH", "").replace("SZ", "").replace("BJ", "")
@@ -128,7 +89,7 @@ def _code(value: Any) -> str | None:
 
 
 def _normalize_us_symbol(value: Any) -> str | None:
-    text = _text(value)
+    text = to_text(value)
     if not text:
         return None
     text = text.upper().strip()
@@ -145,7 +106,7 @@ def _normalize_us_symbol(value: Any) -> str | None:
 
 def _fallback_title(row: dict[str, Any]) -> str | None:
     for value in row.values():
-        text = _text(value)
+        text = to_text(value)
         if text and len(text) >= 6:
             return text[:120]
     return None
@@ -161,7 +122,7 @@ def _cls_sign(params: dict[str, Any]) -> str:
 
 
 def _datetime_from_epoch(value: Any) -> str | None:
-    timestamp = _num(value)
+    timestamp = to_float(value)
     if timestamp is None:
         return None
     try:
@@ -186,11 +147,11 @@ def _title_from_content(content: str | None) -> str | None:
 
 
 def _parse_cls_roll_item(item: dict[str, Any]) -> dict[str, Any] | None:
-    content = _text(item.get("content"))
-    title = _text(item.get("title")) or _title_from_content(content)
+    content = to_text(item.get("content"))
+    title = to_text(item.get("title")) or _title_from_content(content)
     if not title:
         return None
-    url = _text(item.get("shareurl"))
+    url = to_text(item.get("shareurl"))
     if not url and item.get("id"):
         url = f"https://www.cls.cn/detail/{item.get('id')}"
     return {
@@ -245,7 +206,10 @@ def fetch_cls_news_records(limit: int = 40) -> list[dict[str, Any]]:
 
 
 def fetch_news_records(guide_date: str, limit: int = 40) -> list[dict[str, Any]]:
-    """Fetch overnight market news from public AkShare sources."""
+    """Fetch market news from all configured public sources.
+
+    ``limit`` is the maximum rows per source, not the total row cap.
+    """
     import akshare as ak
 
     sources: list[tuple[str, Callable[[], Any]]] = [
@@ -258,7 +222,7 @@ def fetch_news_records(guide_date: str, limit: int = 40) -> list[dict[str, Any]]
 
     try:
         for record in fetch_cls_news_records(limit=limit):
-            title = _text(record.get("title"))
+            title = to_text(record.get("title"))
             if not title:
                 continue
             key = title[:80]
@@ -266,19 +230,20 @@ def fetch_news_records(guide_date: str, limit: int = 40) -> list[dict[str, Any]]
                 continue
             seen.add(key)
             records.append(record)
-            if len(records) >= limit:
-                return records
+            if sum(1 for item in records if item.get("source") == "cls") >= limit:
+                break
     except Exception as exc:
         print(f"  ⚠️  新闻源 cls 失败: {exc}")
 
     for source, fn in sources:
+        source_count = 0
         try:
             rows = _records(call_with_timeout(fn))
         except Exception as exc:
             print(f"  ⚠️  新闻源 {source} 失败: {exc}")
             continue
         for row in rows:
-            title = _text(_first(row, ["标题", "title", "新闻标题", "内容", "摘要"])) or _fallback_title(row)
+            title = to_text(_first(row, ["标题", "title", "新闻标题", "内容", "摘要"])) or _fallback_title(row)
             if not title:
                 continue
             key = title[:80]
@@ -287,18 +252,19 @@ def fetch_news_records(guide_date: str, limit: int = 40) -> list[dict[str, Any]]
             seen.add(key)
             records.append({
                 "source": source,
-                "published_at": _text(_first(row, ["发布时间", "时间", "日期", "date", "datetime"])),
+                "published_at": to_text(_first(row, ["发布时间", "时间", "日期", "date", "datetime"])),
                 "title": title,
-                "content": _text(_first(row, ["内容", "摘要", "简介", "summary"])),
-                "url": _text(_first(row, ["链接", "url", "新闻链接"])),
+                "content": to_text(_first(row, ["内容", "摘要", "简介", "summary"])),
+                "url": to_text(_first(row, ["链接", "url", "新闻链接"])),
                 "raw_payload": row,
             })
-            if len(records) >= limit:
-                return records
+            source_count += 1
+            if source_count >= limit:
+                break
     return records
 
 
-def fetch_announcement_records(notice_date: str, limit: int = 60) -> list[dict[str, Any]]:
+def fetch_announcement_records(notice_date: str, limit: int = 500) -> list[dict[str, Any]]:
     """Fetch A-share announcements for the review date."""
     import akshare as ak
 
@@ -309,16 +275,16 @@ def fetch_announcement_records(notice_date: str, limit: int = 60) -> list[dict[s
         return []
     records: list[dict[str, Any]] = []
     for row in rows[:limit]:
-        title = _text(_first(row, ["公告标题", "标题", "notice_title", "title"])) or _fallback_title(row)
+        title = to_text(_first(row, ["公告标题", "标题", "notice_title", "title"])) or _fallback_title(row)
         if not title:
             continue
         records.append({
             "stock_code": _code(_first(row, ["代码", "股票代码", "证券代码", "stock_code"])),
-            "stock_name": _text(_first(row, ["名称", "股票简称", "证券简称", "stock_name"])),
+            "stock_name": to_text(_first(row, ["名称", "股票简称", "证券简称", "stock_name"])),
             "notice_date": notice_date,
-            "notice_type": _text(_first(row, ["公告类型", "类型", "notice_type"])),
+            "notice_type": to_text(_first(row, ["公告类型", "类型", "notice_type"])),
             "title": title,
-            "url": _text(_first(row, ["公告链接", "链接", "url"])),
+            "url": to_text(_first(row, ["公告链接", "链接", "url"])),
             "raw_payload": row,
         })
     return records
@@ -326,7 +292,15 @@ def fetch_announcement_records(notice_date: str, limit: int = 60) -> list[dict[s
 
 def fetch_us_stock_records(quote_date: str, limit: int = 60) -> list[dict[str, Any]]:
     """Fetch famous US stock movers for overnight reference."""
-    import akshare as ak
+    try:
+        import akshare as ak
+    except Exception as exc:
+        print(f"  ⚠️  美股源 eastmoney 不可用: {exc}")
+        try:
+            return fetch_tencent_us_stock_records(limit=limit)
+        except Exception as fallback_exc:
+            print(f"  ⚠️  美股备用源 tencent 失败: {fallback_exc}")
+            return []
 
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -345,11 +319,11 @@ def fetch_us_stock_records(quote_date: str, limit: int = 60) -> list[dict[str, A
             seen.add(symbol)
             records.append({
                 "symbol": symbol,
-                "stock_name": _text(_first(row, ["名称", "股票名称", "中文名称", "name"])) or symbol,
+                "stock_name": to_text(_first(row, ["名称", "股票名称", "中文名称", "name"])) or symbol,
                 "sector": sector,
-                "latest_price": _num(_first(row, ["最新价", "价格", "price", "最新"])),
-                "change_pct": _num(_first(row, ["涨跌幅", "涨幅", "change_pct", "percent"])),
-                "change_amount": _num(_first(row, ["涨跌额", "change_amount", "涨跌"])),
+                "latest_price": to_float(_first(row, ["最新价", "价格", "price", "最新"])),
+                "change_pct": to_float(_first(row, ["涨跌幅", "涨幅", "change_pct", "percent"])),
+                "change_amount": to_float(_first(row, ["涨跌额", "change_amount", "涨跌"])),
                 "raw_payload": row,
             })
     records.sort(key=lambda item: abs(item.get("change_pct") or 0), reverse=True)
@@ -380,11 +354,11 @@ def _parse_tencent_us_quote_line(
     default_name, default_sector = symbol_meta.get(symbol, (symbol, "美股核心"))
     return {
         "symbol": symbol,
-        "stock_name": _text(parts[1]) or default_name,
+        "stock_name": to_text(parts[1]) or default_name,
         "sector": default_sector,
-        "latest_price": _num(parts[3]),
-        "change_pct": _num(parts[32]),
-        "change_amount": _num(parts[31]),
+        "latest_price": to_float(parts[3]),
+        "change_pct": to_float(parts[32]),
+        "change_amount": to_float(parts[31]),
         "raw_payload": {
             "source": "tencent_us_quote",
             "line": line,

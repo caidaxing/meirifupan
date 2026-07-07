@@ -15,16 +15,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db import MarketDB
 from fetch_missing_data import DEFAULT_DB_PATH
+from utils import row_to_dict
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
-
-
-def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return dict(row)
 
 
 def _json_list(value: str | None) -> list[Any]:
@@ -89,7 +86,7 @@ def build_plate_trends(conn: sqlite3.Connection, dates: list[str] | None = None)
     previous_count: dict[str, float] = {}
     records: list[dict[str, Any]] = []
     for row in rows:
-        item = _row_to_dict(row)
+        item = row_to_dict(row)
         plate_code = item["plate_code"]
         limit_up_count = float(item["limit_up_count"] or 0)
         prev = previous_count.get(plate_code)
@@ -155,7 +152,7 @@ def build_plate_reasons(conn: sqlite3.Connection, dates: list[str] | None = None
 
     records: list[dict[str, Any]] = []
     for row in rows:
-        item = _row_to_dict(row)
+        item = row_to_dict(row)
         stocks = _unique((item.get("stock_names") or "").split(","), 10)
         reasons = _unique((item.get("reasons") or "").split(","), 10)
         reason_counter = Counter(reasons)
@@ -204,7 +201,7 @@ def _core_stocks_from_limit_up(conn: sqlite3.Connection, trade_date: str, limit:
         """,
         (trade_date, limit),
     ).fetchall()
-    return [_row_to_dict(row) for row in rows]
+    return [row_to_dict(row) for row in rows]
 
 
 def _available_dates(conn: sqlite3.Connection, dates: list[str] | None) -> list[str]:
@@ -288,10 +285,10 @@ def build_stock_info_snapshots(conn: sqlite3.Connection, dates: list[str] | None
                 "raw_payload": {
                     "source": "derived_from_local_review",
                     "review_core": stock,
-                    "limit_up_event": _row_to_dict(event) if event else None,
-                    "plates": [_row_to_dict(row) for row in plates],
-                    "latest_kline": _row_to_dict(kline) if kline else None,
-                    "lhb": [_row_to_dict(row) for row in lhb],
+                    "limit_up_event": row_to_dict(event) if event else None,
+                    "plates": [row_to_dict(row) for row in plates],
+                    "latest_kline": row_to_dict(kline) if kline else None,
+                    "lhb": [row_to_dict(row) for row in lhb],
                 },
             })
     return records

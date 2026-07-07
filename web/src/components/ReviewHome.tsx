@@ -173,27 +173,15 @@ export function ReviewHome({ data, emotionTrend, marketTrend, plateRotation, onO
           onClick={() => onOpenTab('premarket-guide')}
         />
         <ActionCard
-          title="量化全景"
-          value={data.emotion.level}
-          text="先看情绪、空间板、人气核心和亏钱反馈是否互相印证。"
-          onClick={() => onOpenTab('quantzz-daily')}
-        />
-        <ActionCard
           title="涨停复盘"
           value={`${data.limit_up_stats.total}只`}
           text={`首板 ${data.limit_up_stats.first_board}，连板 ${data.limit_up_stats.multi_board}，最高 ${data.limit_up_stats.highest_board} 板。`}
           onClick={() => onOpenTab('limit-up-review')}
         />
         <ActionCard
-          title="情绪复盘"
-          value={hotSummary ? `${hotSummary.non_limit_up_count ?? 0}只` : data.emotion.level}
-          text={hotSummary?.text ?? data.emotion.advice}
-          onClick={() => onOpenTab('emotion-review')}
-        />
-        <ActionCard
           title="赚钱效应"
           value={amountChange == null ? '-' : fmtSigned(amountChange)}
-          text={`成交额变化 ${fmtSigned(amountChange)}，红盘率 ${fmtPct(latestMarket?.up_rate ?? data.market_environment.breadth.up_rate)}。`}
+          text={`${hotSummary?.text ?? data.emotion.advice} 成交额变化 ${fmtSigned(amountChange)}。`}
           onClick={() => onOpenTab('profit-effect')}
         />
         <ActionCard

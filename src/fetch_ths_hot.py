@@ -12,23 +12,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db import MarketDB
 from fetch_missing_data import DEFAULT_DB_PATH
+from utils import to_float, to_int
 
 
 THS_HOT_URL = "https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock"
-
-
-def _num(value: Any) -> float | None:
-    if value in (None, "", "-", "--"):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _int(value: Any) -> int | None:
-    number = _num(value)
-    return int(number) if number is not None else None
 
 
 def _concept_tags(item: dict[str, Any]) -> list[str]:
@@ -52,7 +39,7 @@ def parse_ths_hot_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for item in items:
         code = str(item.get("code") or "").strip()
-        rank_no = _int(item.get("order"))
+        rank_no = to_int(item.get("order"))
         if not code or rank_no is None:
             continue
         records.append({
@@ -60,9 +47,9 @@ def parse_ths_hot_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "stock_code": code,
             "stock_name": item.get("name"),
             "latest_price": None,
-            "change_pct": _num(item.get("rise_and_fall")),
-            "hot_value": _num(item.get("rate")),
-            "rank_change": _int(item.get("hot_rank_chg")),
+            "change_pct": to_float(item.get("rise_and_fall")),
+            "hot_value": to_float(item.get("rate")),
+            "rank_change": to_int(item.get("hot_rank_chg")),
             "concept_tags": _concept_tags(item),
             "popularity_tag": _popularity_tag(item),
             "raw_payload": item,

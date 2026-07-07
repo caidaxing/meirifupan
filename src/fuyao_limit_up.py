@@ -13,6 +13,16 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
+try:
+    import certifi
+except Exception:  # pragma: no cover - depends on local Python install
+    class _MissingCertifi:
+        @staticmethod
+        def where() -> str | None:
+            return None
+
+    certifi = _MissingCertifi()
+
 
 BASE_URL = "https://fuyao.aicubes.cn"
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "market_review.db"
@@ -22,6 +32,13 @@ SHANGHAI_TZ = timezone(timedelta(hours=8))
 def shanghai_midnight_ms(date: str) -> int:
     dt = datetime.fromisoformat(date).replace(tzinfo=SHANGHAI_TZ)
     return int(dt.timestamp() * 1000)
+
+
+def make_ssl_context() -> ssl.SSLContext:
+    cafile = certifi.where()
+    if cafile:
+        return ssl.create_default_context(cafile=cafile)
+    return ssl.create_default_context()
 
 
 def fetch_limit_up_pool(api_key: str, date: str, *, base_url: str = BASE_URL) -> list[dict[str, Any]]:
@@ -37,7 +54,7 @@ def fetch_limit_up_pool(api_key: str, date: str, *, base_url: str = BASE_URL) ->
     })
     url = f"{base_url}/api/a-share/special-data/limit-up-pool?{query}"
     req = urllib.request.Request(url, headers={"X-api-key": api_key})
-    ctx = ssl.create_default_context()
+    ctx = make_ssl_context()
     with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
 

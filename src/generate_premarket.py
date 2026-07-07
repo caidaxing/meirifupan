@@ -15,6 +15,7 @@ from premarket_analysis import (
     build_strategy_points,
     diagnose_market_state,
 )
+from utils import row_to_dict, rows_to_list
 
 
 AI_KEYWORDS = ("AI", "算力", "服务器", "英伟达", "NVDA", "芯片", "半导体", "存储", "光模块", "CPO")
@@ -22,14 +23,6 @@ ROBOT_KEYWORDS = ("机器人", "特斯拉", "自动驾驶", "工业母机")
 AUTO_KEYWORDS = ("汽车", "新能源车", "锂电", "固态电池", "储能")
 CONSUMER_KEYWORDS = ("消费", "食品", "旅游", "零售", "白酒")
 FINANCE_KEYWORDS = ("金融", "券商", "银行", "保险")
-
-
-def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return dict(row)
-
-
-def _rows(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
-    return [_row_to_dict(row) for row in rows]
 
 
 def _pct_text(value: float | int | None) -> str:
@@ -96,7 +89,7 @@ def _market_row(conn: sqlite3.Connection, review_date: str) -> dict[str, Any]:
         """,
         (review_date,),
     ).fetchone()
-    result = _row_to_dict(row) if row else {}
+    result = row_to_dict(row) if row else {}
     if result:
         broken_row = conn.execute(
             "select count(*) as total from broken_limit_up_events where trade_date = ?",
@@ -297,7 +290,7 @@ def _focus_plates(conn: sqlite3.Connection, review_date: str, limit: int = 6) ->
     ).fetchall()
     result = []
     for row in rows:
-        item = _row_to_dict(row)
+        item = row_to_dict(row)
         item["plate_code"] = item.get("board_code")
         item["plate_name"] = item.get("board_name")
         item["reason"] = f"昨日板块排名第 {item['rank_no']}，涨幅 {_pct_text(item.get('change_pct'))}，涨停 {item.get('limit_up_count') or 0} 只。"
@@ -324,7 +317,7 @@ def _focus_plates(conn: sqlite3.Connection, review_date: str, limit: int = 6) ->
     ).fetchall()
     result = []
     for row in rows:
-        item = _row_to_dict(row)
+        item = row_to_dict(row)
         item["plate_code"] = item.get("board_code")
         item["plate_name"] = item.get("board_name")
         item["reason"] = f"昨日涨停 {item.get('limit_up_count') or 0} 只，最高 {item.get('highest_board') or '-'} 板。"
@@ -351,7 +344,7 @@ def _focus_plates(conn: sqlite3.Connection, review_date: str, limit: int = 6) ->
     ).fetchall()
     return [
         {
-            **_row_to_dict(row),
+            **row_to_dict(row),
             "plate_code": row["board_code"],
             "plate_name": row["board_name"],
             "reason": f"昨日涨停热度靠前，涨停 {row['limit_up_count'] or 0} 只。",
@@ -370,7 +363,7 @@ def _hot_stocks(conn: sqlite3.Connection, review_date: str, limit: int = 8) -> l
         (review_date,),
     ).fetchone()
     source_filter = "source like 'eastmoney%'" if source_row and source_row["total"] else "1 = 1"
-    return _rows(conn.execute(
+    return rows_to_list(conn.execute(
         f"""
         select rank_no, stock_code, stock_name, latest_price, change_pct, amount, turnover_rate, source
         from hot_stocks
@@ -383,7 +376,7 @@ def _hot_stocks(conn: sqlite3.Connection, review_date: str, limit: int = 8) -> l
 
 
 def _space_stocks(conn: sqlite3.Connection, review_date: str, limit: int = 5) -> list[dict[str, Any]]:
-    return _rows(conn.execute(
+    return rows_to_list(conn.execute(
         """
         select stock_code, stock_name, up_limit_keep_times, up_limit_desc,
                up_limit_time, reason, fengdan_money, fengdan_rate
@@ -397,7 +390,7 @@ def _space_stocks(conn: sqlite3.Connection, review_date: str, limit: int = 5) ->
 
 
 def _news(conn: sqlite3.Connection, guide_date: str, limit: int = 12) -> list[dict[str, Any]]:
-    return _rows(conn.execute(
+    return rows_to_list(conn.execute(
         """
         select source, published_at, title, content, url
         from premarket_news
@@ -410,7 +403,7 @@ def _news(conn: sqlite3.Connection, guide_date: str, limit: int = 12) -> list[di
 
 
 def _announcements(conn: sqlite3.Connection, notice_date: str, limit: int = 12) -> list[dict[str, Any]]:
-    return _rows(conn.execute(
+    return rows_to_list(conn.execute(
         """
         select stock_code, stock_name, notice_date, notice_type, title, url
         from stock_announcements
@@ -423,7 +416,7 @@ def _announcements(conn: sqlite3.Connection, notice_date: str, limit: int = 12) 
 
 
 def _us_markets(conn: sqlite3.Connection, guide_date: str, limit: int = 10) -> list[dict[str, Any]]:
-    rows = _rows(conn.execute(
+    rows = rows_to_list(conn.execute(
         """
         select symbol, stock_name, sector, latest_price, change_pct, change_amount
         from us_stock_quotes

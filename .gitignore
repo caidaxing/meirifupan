@@ -1,11 +1,13 @@
 # Dependencies
 web/node_modules/
+web/stock-chat/node_modules/
 .venv/
 .npm-cache/
 .codex-runtime/
 
 # Build output
 web/dist/
+web/stock-chat/dist/
 
 # Python cache
 __pycache__/

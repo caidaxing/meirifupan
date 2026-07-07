@@ -198,7 +198,13 @@ class ReviewModuleTests(unittest.TestCase):
 
         self.assertEqual("ok", lhb["status"])
         self.assertEqual(150000000, lhb["summary"]["net_buy_amount"])
+        self.assertEqual(1, lhb["summary"]["distinct_stock_count"])
+        self.assertEqual(1, lhb["summary"]["limit_up_stock_count"])
+        self.assertEqual(1, lhb["summary"]["net_buy_count"])
+        self.assertEqual(0, lhb["summary"]["net_sell_count"])
         self.assertEqual("600001", lhb["items"][0]["stock_code"])
+        self.assertTrue(lhb["items"][0]["is_limit_up"])
+        self.assertEqual("2-board", lhb["items"][0]["board_label"])
 
         self.assertEqual("ok", alerts["status"])
         self.assertEqual(1, alerts["summary"]["alert_count"])
@@ -302,6 +308,30 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertIn('@router.get("/api/review/plate-rotation")', source)
         self.assertIn('@router.get("/api/review/lhb")', source)
         self.assertIn('@router.get("/api/review/movement-alerts")', source)
+        self.assertIn('@router.get("/api/emotion/modules")', source)
+
+    def test_emotion_modules_payload_contains_quantzz_style_tabs(self):
+        from server.services.review_queries import get_emotion_modules
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "market.db"
+            self._build_review_db(db_path)
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                payload = get_emotion_modules(conn, "2026-06-24", days=60)
+            finally:
+                conn.close()
+
+        labels = [item["label"] for item in payload["modules"]]
+        self.assertEqual(
+            ["情绪周期", "情绪日内", "情绪周期VIP", "情绪周期-年", "空间板", "人气", "人气对比", "情绪热度单页"],
+            labels,
+        )
+        self.assertEqual("cycle", payload["modules"][0]["key"])
+        self.assertIn("score", payload["modules"][0]["summary"])
+        self.assertIn("highest_board", payload["modules"][4]["summary"])
+        self.assertIn("top20_count", payload["modules"][5]["summary"])
 
     def test_limit_up_reason_page_has_workbench_controls(self):
         source = (ROOT / "web" / "src" / "components" / "review" / "ReviewWorkbench.tsx").read_text(encoding="utf-8")
@@ -309,6 +339,11 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertIn("按热度排序", source)
         self.assertIn("按涨停数排序", source)
         self.assertIn("只看核心股", source)
+
+    def test_emotion_review_has_quantzz_style_subtabs(self):
+        source = (ROOT / "web" / "src" / "components" / "EmotionReview.tsx").read_text(encoding="utf-8")
+        for label in ["情绪周期", "情绪日内", "情绪周期VIP", "情绪周期-年", "空间板", "人气", "人气对比", "情绪热度单页"]:
+            self.assertIn(label, source)
 
     def test_promotion_page_has_matrix_controls(self):
         source = (ROOT / "web" / "src" / "components" / "review" / "ReviewWorkbench.tsx").read_text(encoding="utf-8")
@@ -320,12 +355,14 @@ class ReviewModuleTests(unittest.TestCase):
 
     def test_limit_up_reason_page_shows_each_stock_reason_as_full_row(self):
         source = (ROOT / "web" / "src" / "components" / "review" / "ReviewWorkbench.tsx").read_text(encoding="utf-8")
-        self.assertIn("<i>{formatValue(stock.reason)}</i>", source)
+        self.assertIn("<strong>涨停原因</strong>", source)
+        self.assertIn("title={formatValue(stock.reason)}", source)
 
         styles = (ROOT / "web" / "src" / "styles" / "globals.css").read_text(encoding="utf-8")
         self.assertIn(".review-stock-list-with-reason > span i", styles)
         self.assertIn("grid-column: 1 / -1;", styles)
         self.assertIn("white-space: normal;", styles)
+        self.assertIn(".review-stock-list-with-reason > span i strong", styles)
 
 
 if __name__ == "__main__":

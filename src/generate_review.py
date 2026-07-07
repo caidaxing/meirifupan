@@ -13,6 +13,7 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db import MarketDB
+from utils import row_to_dict
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -26,17 +27,13 @@ def _connect(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return dict(row)
-
-
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-    return [_row_to_dict(row) for row in conn.execute(sql, params).fetchall()]
+    return [row_to_dict(row) for row in conn.execute(sql, params).fetchall()]
 
 
 def _row(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
-    row = conn.execute(sql, params).fetchone()
-    return _row_to_dict(row) if row else None
+    r = conn.execute(sql, params).fetchone()
+    return row_to_dict(r) if r else None
 
 
 def _hot_stock_source_filter(conn: sqlite3.Connection, trade_date: str) -> str:
@@ -282,7 +279,7 @@ def _plate_activity_map(
         """,
         (plate_code, *dates),
     ).fetchall()
-    data = {row["trade_date"]: _row_to_dict(row) for row in rows}
+    data = {row["trade_date"]: row_to_dict(row) for row in rows}
     return {
         date: {
             "trade_date": date,
@@ -719,9 +716,10 @@ def build_summary(
 ) -> str:
     total = _safe_int(stats.get("limit_up_stock_count"))
     prev_total = _safe_int(prev.get("limit_up_stock_count"))
-    delta = total - prev_total if prev_total else 0
+    has_prev = prev_total > 0
+    delta = total - prev_total if has_prev else 0
     strongest = strongest_plates[0]["plate_name"] if strongest_plates else "暂无明显主线"
-    direction = "增加" if delta > 0 else "减少" if delta < 0 else "持平"
+    direction = "增加" if delta > 0 else "减少" if delta < 0 else ("持平" if has_prev else "首日数据")
     breadth_text = f"，红盘率 {up_rate:.1f}%" if up_rate is not None else ""
     hot_text = ""
     if hot_stocks:
@@ -736,7 +734,7 @@ def build_summary(
     return (
         f"{trade_date} 涨停 {total} 只，较前一交易日{direction} {abs(delta)} 只，"
         f"最高板 {stats.get('highest_board') or 1} 板，主线集中在 {strongest}"
-        f"{breadth_text}。跌停 {breadth.get('limit_down_count') or limit_down_total} 只，"
+        f"{breadth_text}。跌停 {limit_down_total} 只，"
         f"炸板 {broken_total} 只，明天重点看主线延续和高位分歧。{hot_text}"
     )
 
@@ -756,7 +754,7 @@ def build_risk_flags(
         risks.append(f"涨停数较前一交易日明显收缩：{prev_total} -> {total}。")
     if broken_total >= max(20, total * 0.45):
         risks.append(f"炸板数量偏高：{broken_total} 只，说明封板稳定性一般。")
-    limit_down_count = _safe_int(breadth.get("limit_down_count")) or limit_down_total
+    limit_down_count = limit_down_total
     if limit_down_count >= 20:
         risks.append(f"跌停数量偏多：{limit_down_count} 只，亏钱效应需要警惕。")
     if up_rate is not None and up_rate < 45:
@@ -840,7 +838,7 @@ def render_markdown(review: dict[str, Any]) -> str:
         f"| 涨停 | {review['limit_up_stock_count']} |",
         f"| 首板 / 连板 | {review['first_board_count']} / {review['multi_board_count']} |",
         f"| 最高板 | {review['highest_board']} |",
-        f"| 跌停 | {review['breadth'].get('limit_down_count') or review['breadth'].get('limit_down_total')} |",
+        f"| 跌停 | {review['breadth'].get('limit_down_total')} |",
         f"| 炸板 | {review['breadth'].get('broken_limit_up_total')} |",
         f"| 红盘率 | {review['breadth'].get('up_rate') if review['breadth'].get('up_rate') is not None else '-'}% |",
         f"| 成交额 | {_fmt_money(review['breadth'].get('amount'))} |",

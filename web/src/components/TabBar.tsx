@@ -10,7 +10,7 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'premarket-guide', label: '盘前指引' },
   { key: 'quantzz-daily', label: '量化全景' },
   { key: 'limit-up-review', label: '涨停复盘' },
-  { key: 'emotion-review', label: '情绪复盘' },
+  { key: 'emotion-review', label: '日内情绪' },
   { key: 'profit-effect', label: '赚钱效应' },
   { key: 'data-overview', label: '数据总览' },
 ]

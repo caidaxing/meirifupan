@@ -22,8 +22,10 @@ from fetch_market_overview import fetch_market_overview
 from fetch_missing_data import DEFAULT_DB_PATH, run_collectors
 from fetch_plate_index_daily import fetch_plate_index_daily
 from fetch_plate_rotation import fetch_plate_rotation
+from fetch_premarket import collect_premarket_data
 from fetch_ths_hot import fetch_ths_hot_bundle
 from fetch_uplimit import fetch_sentiment_data, fetch_uplimit_data, load_token
+from fuyao_collect import collect_fuyao_daily
 from generate_review import generate_daily_review
 
 
@@ -152,8 +154,13 @@ def run_daily_update(
         if api is None:
             raise RuntimeError("未找到 token，请先配置 config/token.json")
 
-        run_step("涨停主数据", lambda: _fetch_uplimit(api, db_path, target_day), summary)
-        run_step("情绪数据", lambda: _fetch_sentiment(api, db_path), summary)
+        db = MarketDB(db_path)
+        db.init_schema()
+
+        run_step("涨停主数据", lambda: _fetch_uplimit(api, db, target_day), summary)
+        run_step("Fuyao补充数据", lambda: _fetch_fuyao(db_path, target_day), summary)
+        run_step("情绪数据", lambda: _fetch_sentiment(api, db), summary)
+        run_step("大盘指数", lambda: _fetch_index_daily(api, db, target_day), summary)
         run_step(
             "历史口径数据",
             lambda: run_collectors(target_day, db_path, kline_limit, include_realtime=False, include_historical=True),
@@ -169,8 +176,9 @@ def run_daily_update(
             lambda: fetch_market_overview(end_date=target_day, db_path=db_path, lookback_days=90),
             summary,
         )
-        run_step("热门股票", lambda: _fetch_hot_stocks(db_path, target_day), summary)
-        run_step("热门板块", lambda: _fetch_hot_boards(db_path, target_day), summary)
+        run_step("热门股票", lambda: _fetch_hot_stocks(db, target_day), summary)
+        run_step("热门板块", lambda: _fetch_hot_boards(db, target_day), summary)
+        run_step("盘前外部数据", lambda: _fetch_premarket_external(db_path, target_day), summary)
         run_step("题材轮动", lambda: fetch_plate_rotation(db_path=db_path, end_date=target_day, days=8, top_n=12), summary)
         run_step("短线热榜", lambda: {"shortline_hot": derive_shortline_hot(db_path, target_day)}, summary)
         run_step(
@@ -183,8 +191,30 @@ def run_daily_update(
             ),
             summary,
         )
-        run_step("派生数据", lambda: derive_review_data(db_path, [target_day]), summary)
-        run_step("生成复盘", lambda: generate_daily_review(target_day, db_path=db_path, output_dir=DEFAULT_REPORT_DIR), summary)
+        # Gate downstream steps: skip derive/generate if critical upstream failed
+        critical_steps = {"涨停主数据", "情绪数据", "历史口径数据", "题材轮动"}
+        critical_failed = any(
+            s["name"] in critical_steps and s["status"] != "success"
+            for s in summary["steps"]
+        )
+        if critical_failed:
+            summary["steps"].append({
+                "name": "派生数据",
+                "status": "skipped",
+                "started_at": now_text(),
+                "finished_at": now_text(),
+                "message": "上游关键步骤失败，跳过",
+            })
+            summary["steps"].append({
+                "name": "生成复盘",
+                "status": "skipped",
+                "started_at": now_text(),
+                "finished_at": now_text(),
+                "message": "上游关键步骤失败，跳过",
+            })
+        else:
+            run_step("派生数据", lambda: derive_review_data(db_path, [target_day]), summary)
+            run_step("生成复盘", lambda: generate_daily_review(target_day, db_path=db_path, output_dir=DEFAULT_REPORT_DIR), summary)
 
         failed_steps = [step for step in summary["steps"] if step["status"] != "success"]
         status = "success" if not failed_steps else "partial"
@@ -201,6 +231,11 @@ def run_daily_update(
             "message": message,
             "traceback": traceback.format_exc(limit=8),
         })
+    finally:
+        try:
+            db.close()  # type: ignore[possibly-undefined]
+        except Exception:
+            pass
     summary["status"] = status
     summary["message"] = message
 
@@ -217,49 +252,95 @@ def run_daily_update(
     return summary
 
 
-def _fetch_sentiment(api: QuantAPI, db_path: str) -> dict[str, int]:
-    db = MarketDB(db_path)
-    db.init_schema()
+def _fetch_sentiment(api: QuantAPI, db: MarketDB) -> dict[str, int]:
+    return {"sentiment_daily": fetch_sentiment_data(api, db, days=15)}
+
+
+def _fetch_index_daily(api: QuantAPI, db: MarketDB, trade_date: str) -> dict[str, int]:
+    """采集大盘指数（上证/深证/创业板/北证50）。"""
     try:
-        return {"sentiment_daily": fetch_sentiment_data(api, db, days=15)}
-    finally:
-        db.close()
+        index_result = api.get_index_trends()
+    except Exception as e:
+        print(f"  ⚠️ Quantzz 指数接口异常: {e}，回退 AkShare")
+        index_result = None
+
+    indices: list[dict] = []
+    if index_result and index_result.get("code") == 200 and index_result.get("data"):
+        for item in index_result["data"]:
+            indices.append({
+                "code": item.get("code") or "",
+                "name": item.get("name") or "",
+                "last_px": item.get("last_px"),
+                "px_change_rate": item.get("px_change_rate"),
+                "amount": item.get("amount"),
+            })
+
+    if not indices:
+        # AkShare fallback
+        try:
+            import akshare as ak
+            symbols = {"sh000001": ("000001.SS", "上证指数"), "sz399001": ("399001.SZ", "深证成指"),
+                        "sz399006": ("399006.SZ", "创业板指"), "bj899050": ("899050.BJ", "北证50")}
+            for sym, (code, name) in symbols.items():
+                df = ak.stock_zh_index_daily(symbol=sym)
+                if df is None or df.empty:
+                    continue
+                row = df[df["date"].astype(str) == trade_date]
+                if row.empty:
+                    continue
+                r = row.iloc[-1]
+                close_price = float(r["close"]) if r.get("close") is not None else None
+                prev_df = df[df["date"].astype(str) < trade_date].tail(1)
+                change_pct = None
+                if close_price and not prev_df.empty:
+                    prev_close = float(prev_df.iloc[-1]["close"])
+                    if prev_close:
+                        change_pct = round((close_price - prev_close) / prev_close * 100, 2)
+                indices.append({"code": code, "name": name, "last_px": close_price,
+                                "px_change_rate": change_pct, "amount": float(r.get("volume") or 0)})
+        except Exception as e:
+            print(f"  ⚠️ AkShare 指数回退也失败: {e}")
+
+    if not indices:
+        return {"market_index_daily": 0}
+    count = db.import_index_daily(trade_date, indices, raw_source="daily_update")
+    return {"market_index_daily": count}
 
 
-def _fetch_uplimit(api: QuantAPI, db_path: str, trade_date: str) -> dict[str, Any]:
-    db = MarketDB(db_path)
-    db.init_schema()
-    try:
-        data = fetch_uplimit_data(api, trade_date, db)
-        return {
-            "limit_up_plates": len(data.get("uplimit_reason") or []),
-            "hot_plates": len(data.get("uplimit_hot") or []),
-            "plate_rank": len(data.get("plate_rank") or []),
-        }
-    finally:
-        db.close()
+def _fetch_uplimit(api: QuantAPI, db: MarketDB, trade_date: str) -> dict[str, Any]:
+    data = fetch_uplimit_data(api, trade_date, db)
+    return {
+        "limit_up_plates": len(data.get("uplimit_reason") or []),
+        "hot_plates": len(data.get("uplimit_hot") or []),
+        "plate_rank": len(data.get("plate_rank") or []),
+    }
 
 
-def _fetch_hot_stocks(db_path: str, trade_date: str) -> dict[str, int]:
-    db = MarketDB(db_path)
-    db.init_schema()
-    try:
-        result = {"hot_stocks": fetch_hot_stocks(db, trade_date)}
-        result.update(fetch_ths_hot_bundle(db, trade_date))
-        return result
-    finally:
-        db.close()
+def _fetch_fuyao(db_path: str, trade_date: str) -> dict[str, Any]:
+    if not os.environ.get("FUYAO_API_KEY"):
+        return {"skipped": "未配置 FUYAO_API_KEY"}
+    return collect_fuyao_daily(trade_date, db_path, include_indexes=True, constituent_limit=0)
 
 
-def _fetch_hot_boards(db_path: str, trade_date: str) -> dict[str, int]:
-    db = MarketDB(db_path)
-    db.init_schema()
-    try:
-        concept = fetch_hot_boards(db, "concept", trade_date)
-        industry = fetch_hot_boards(db, "industry", trade_date)
-        return {"concept_boards": concept, "industry_boards": industry}
-    finally:
-        db.close()
+def _fetch_hot_stocks(db: MarketDB, trade_date: str) -> dict[str, int]:
+    result = {"hot_stocks": fetch_hot_stocks(db, trade_date)}
+    result.update(fetch_ths_hot_bundle(db, trade_date))
+    return result
+
+
+def _fetch_hot_boards(db: MarketDB, trade_date: str) -> dict[str, int]:
+    concept = fetch_hot_boards(db, "concept", trade_date)
+    industry = fetch_hot_boards(db, "industry", trade_date)
+    return {"concept_boards": concept, "industry_boards": industry}
+
+
+def _fetch_premarket_external(db_path: str, trade_date: str) -> dict[str, int | str]:
+    """采集新闻、公告和隔夜美股，写入盘前相关表。"""
+    return collect_premarket_data(
+        guide_date=datetime.now().strftime("%Y-%m-%d"),
+        review_date=trade_date,
+        db_path=db_path,
+    )
 
 
 def main() -> None:

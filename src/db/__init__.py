@@ -39,6 +39,15 @@ def _json_text(value: Any) -> str:
     return json.dumps(_json_ready(value), ensure_ascii=False, default=str)
 
 
+def _hhmm_to_hhmmss(value: Any) -> str | None:
+    if value in ("", None):
+        return None
+    text = str(value)
+    if len(text) == 5 and text[2] == ":":
+        return f"{text}:00"
+    return text
+
+
 class MarketDB:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
@@ -50,580 +59,10 @@ class MarketDB:
         self.conn.close()
 
     def init_schema(self) -> None:
-        self.conn.executescript(
-            """
-            pragma foreign_keys = on;
+        from db.schema import SCHEMA_SQL, run_migrations
+        self.conn.executescript(SCHEMA_SQL)
+        run_migrations(self.conn)
 
-            create table if not exists trade_calendar (
-                trade_date text primary key,
-                is_trade_day integer not null default 1,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp
-            );
-
-            create table if not exists stocks (
-                stock_code text primary key,
-                stock_name text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp
-            );
-
-            create table if not exists plates (
-                plate_code text primary key,
-                plate_name text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp
-            );
-
-            create table if not exists raw_api_responses (
-                id integer primary key autoincrement,
-                trade_date text,
-                source text not null,
-                endpoint text not null,
-                params_hash text not null,
-                payload text not null,
-                created_at text not null default current_timestamp,
-                unique(trade_date, source, endpoint, params_hash)
-            );
-
-            create table if not exists limit_up_events (
-                trade_date text not null,
-                stock_code text not null,
-                stock_name text,
-                stock_price real,
-                up_limit_desc text,
-                up_limit_keep_times integer,
-                up_limit_type text,
-                up_limit_time text,
-                reason text,
-                fengdan_money real,
-                fengdan_rate real,
-                turnover_rate real,
-                circulation_value real,
-                market_type text,
-                amount real,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, stock_code)
-            );
-
-            create table if not exists limit_up_plate_map (
-                trade_date text not null,
-                stock_code text not null,
-                plate_code text not null,
-                plate_name text,
-                plate_score real,
-                stock_reason text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, stock_code, plate_code)
-            );
-
-            create table if not exists plate_hot_rank (
-                trade_date text not null,
-                plate_code text not null,
-                plate_name text,
-                score real,
-                rank_no integer not null,
-                source text not null default 'uplimit_hot',
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, plate_code, source)
-            );
-
-            create table if not exists plate_daily (
-                trade_date text not null,
-                plate_code text not null,
-                plate_name text,
-                rank_no integer,
-                score real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, plate_code)
-            );
-
-            create table if not exists plate_trends (
-                plate_code text not null,
-                trade_date text not null,
-                plate_name text,
-                open_price real,
-                high_price real,
-                low_price real,
-                close_price real,
-                change_pct real,
-                amount real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(plate_code, trade_date)
-            );
-
-            create table if not exists plate_index_daily (
-                plate_code text not null,
-                trade_date text not null,
-                plate_name text,
-                board_type text,
-                source text,
-                open_price real,
-                high_price real,
-                low_price real,
-                close_price real,
-                change_pct real,
-                volume real,
-                amount real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(plate_code, trade_date, source)
-            );
-
-            create table if not exists plate_reasons (
-                plate_code text primary key,
-                plate_name text,
-                reason text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp
-            );
-
-            create table if not exists lhb_daily (
-                trade_date text not null,
-                stock_code text not null,
-                stock_name text,
-                reason text,
-                buy_amount real,
-                sell_amount real,
-                net_buy_amount real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, stock_code, reason)
-            );
-
-            create table if not exists movement_alerts (
-                trade_date text not null,
-                alert_time text not null,
-                stock_code text not null,
-                stock_name text,
-                alert_type text,
-                alert_text text,
-                price real,
-                change_pct real,
-                raw_hash text not null,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                primary key(trade_date, alert_time, stock_code, raw_hash)
-            );
-
-            create table if not exists market_index_daily (
-                trade_date text not null,
-                index_code text not null,
-                index_name text,
-                close_price real,
-                change_pct real,
-                amount real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, index_code)
-            );
-
-            create table if not exists sentiment_daily (
-                trade_date text not null,
-                period integer not null default 0,
-                limit_up_count integer,
-                limit_down_count integer,
-                highest_board integer,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, period)
-            );
-
-            create table if not exists market_breadth_daily (
-                trade_date text primary key,
-                total_count integer,
-                up_count integer,
-                down_count integer,
-                flat_count integer,
-                limit_up_count integer,
-                limit_down_count integer,
-                natural_limit_up_count integer,
-                natural_limit_down_count integer,
-                avg_change_pct real,
-                amount real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp
-            );
-
-            create table if not exists limit_down_events (
-                trade_date text not null,
-                stock_code text not null,
-                stock_name text,
-                latest_price real,
-                change_pct real,
-                amount real,
-                circulation_value real,
-                total_market_cap real,
-                turnover_rate real,
-                seal_amount real,
-                last_limit_down_time text,
-                limit_down_days integer,
-                open_count integer,
-                industry text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, stock_code)
-            );
-
-            create table if not exists broken_limit_up_events (
-                trade_date text not null,
-                stock_code text not null,
-                stock_name text,
-                latest_price real,
-                change_pct real,
-                limit_up_price real,
-                amount real,
-                circulation_value real,
-                total_market_cap real,
-                turnover_rate real,
-                first_limit_up_time text,
-                open_count integer,
-                limit_up_stat text,
-                amplitude real,
-                industry text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, stock_code)
-            );
-
-            create table if not exists market_hot_daily (
-                trade_date text not null,
-                item_key text not null,
-                item_name text,
-                score real,
-                rank_no integer,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, item_key)
-            );
-
-            create table if not exists stock_kline_daily (
-                stock_code text not null,
-                trade_date text not null,
-                open_price real,
-                high_price real,
-                low_price real,
-                close_price real,
-                volume real,
-                amount real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(stock_code, trade_date)
-            );
-
-            create table if not exists stock_trends (
-                stock_code text not null,
-                trade_date text not null,
-                point_time text not null,
-                price real,
-                volume real,
-                amount real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                primary key(stock_code, trade_date, point_time)
-            );
-
-            create table if not exists stock_info_snapshots (
-                stock_code text not null,
-                snapshot_date text not null,
-                stock_name text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(stock_code, snapshot_date)
-            );
-
-            create table if not exists daily_reviews (
-                trade_date text primary key,
-                limit_up_stock_count integer,
-                limit_up_plate_count integer,
-                first_board_count integer,
-                multi_board_count integer,
-                highest_board integer,
-                strongest_plates text,
-                core_stocks text,
-                risk_flags text,
-                opportunities text,
-                next_plan text,
-                markdown_path text,
-                raw_payload text,
-                summary text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp
-            );
-
-            create table if not exists data_jobs (
-                id integer primary key autoincrement,
-                job_name text not null,
-                trade_date text,
-                status text not null,
-                message text,
-                details text,
-                started_at text,
-                finished_at text,
-                created_at text not null default current_timestamp
-            );
-
-            create table if not exists premarket_news (
-                guide_date text not null,
-                source text not null,
-                published_at text,
-                title text not null,
-                content text,
-                url text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(guide_date, source, title)
-            );
-
-            create table if not exists stock_announcements (
-                notice_date text not null,
-                stock_code text,
-                stock_name text,
-                notice_type text,
-                title text not null,
-                url text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(notice_date, title)
-            );
-
-            create table if not exists us_stock_quotes (
-                quote_date text not null,
-                symbol text not null,
-                stock_name text,
-                sector text,
-                latest_price real,
-                change_pct real,
-                change_amount real,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(quote_date, symbol)
-            );
-
-            create table if not exists premarket_guides (
-                guide_date text primary key,
-                review_date text,
-                headline text,
-                market_tone text,
-                focus_plates text,
-                watch_points text,
-                risk_points text,
-                catalyst_news text,
-                announcements text,
-                us_markets text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp
-            );
-
-            create table if not exists plate_rotation_rank (
-                trade_date text not null,
-                plate_code text not null,
-                plate_name text,
-                rank_no integer not null,
-                rate real,
-                score real,
-                speed real,
-                money_leader real,
-                money_leader_buy real,
-                money_leader_sell real,
-                trade_money real,
-                volume_ration real,
-                source text not null default 'quant_yjj',
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, plate_code, source)
-            );
-
-            create table if not exists plate_rotation_trend (
-                plate_code text not null,
-                trade_date text not null,
-                plate_name text,
-                rate real,
-                score real,
-                speed real,
-                money_leader real,
-                money_leader_buy real,
-                money_leader_sell real,
-                trade_money real,
-                volume_ration real,
-                source text not null default 'quant_yjj',
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(plate_code, trade_date, source)
-            );
-
-            create table if not exists plate_rotation_reasons (
-                plate_code text not null,
-                reason_date text not null,
-                msg_id text not null,
-                plate_name text,
-                title text,
-                boomreason text,
-                is_boom integer,
-                limit_up_count integer,
-                strength_score real,
-                leader_info text,
-                source text not null default 'quant_yjj',
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(plate_code, reason_date, msg_id, source)
-            );
-
-            create table if not exists plate_rotation_stocks (
-                trade_date text not null,
-                plate_code text not null,
-                stock_code text not null,
-                stock_name text,
-                rank_no integer,
-                rank_diff integer,
-                change_pct real,
-                high_change_pct real,
-                open_change_pct real,
-                turnover_ratio real,
-                volume_ratio real,
-                circulation_value real,
-                source text not null default 'quant_yjj',
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, plate_code, stock_code, source)
-            );
-
-            create index if not exists idx_limit_up_events_date_time
-                on limit_up_events(trade_date, up_limit_time);
-            create index if not exists idx_limit_up_plate_map_date_plate
-                on limit_up_plate_map(trade_date, plate_code);
-            create index if not exists idx_plate_hot_rank_date_rank
-                on plate_hot_rank(trade_date, rank_no);
-            create index if not exists idx_plate_daily_date_rank
-                on plate_daily(trade_date, rank_no);
-            create index if not exists idx_plate_index_daily_date
-                on plate_index_daily(trade_date);
-            create index if not exists idx_raw_api_responses_endpoint
-                on raw_api_responses(endpoint, trade_date);
-            create index if not exists idx_movement_alerts_date_time
-                on movement_alerts(trade_date, alert_time);
-            create index if not exists idx_lhb_daily_date
-                on lhb_daily(trade_date);
-            create index if not exists idx_stock_kline_daily_date
-                on stock_kline_daily(trade_date);
-            create index if not exists idx_market_breadth_date
-                on market_breadth_daily(trade_date);
-            create index if not exists idx_limit_down_events_date
-                on limit_down_events(trade_date);
-            create index if not exists idx_broken_limit_up_events_date
-                on broken_limit_up_events(trade_date);
-            create index if not exists idx_premarket_news_date
-                on premarket_news(guide_date, published_at);
-            create index if not exists idx_stock_announcements_date
-                on stock_announcements(notice_date);
-            create index if not exists idx_us_stock_quotes_date
-                on us_stock_quotes(quote_date, change_pct);
-            create index if not exists idx_plate_rotation_rank_date_rank
-                on plate_rotation_rank(trade_date, source, rank_no);
-            create index if not exists idx_plate_rotation_trend_plate_date
-                on plate_rotation_trend(plate_code, source, trade_date);
-            create index if not exists idx_plate_rotation_stocks_plate_date_rank
-                on plate_rotation_stocks(trade_date, plate_code, source, rank_no);
-
-            create table if not exists hot_stocks (
-                trade_date text not null,
-                rank_no integer not null,
-                stock_code text not null,
-                stock_name text,
-                latest_price real,
-                change_pct real,
-                change_amount real,
-                amount real,
-                turnover_rate real,
-                source text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, stock_code)
-            );
-
-            create table if not exists stock_hot_ranks (
-                trade_date text not null,
-                source text not null,
-                period text not null,
-                list_type text not null,
-                rank_no integer not null,
-                stock_code text not null,
-                stock_name text,
-                latest_price real,
-                change_pct real,
-                hot_value real,
-                rank_change integer,
-                concept_tags text,
-                popularity_tag text,
-                raw_payload text,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, source, period, list_type, stock_code)
-            );
-
-            create table if not exists hot_boards (
-                trade_date text not null,
-                board_type text not null,
-                rank_no integer not null,
-                board_code text not null,
-                board_name text,
-                latest_price real,
-                change_pct real,
-                change_amount real,
-                total_market_cap real,
-                turnover_rate real,
-                up_count integer,
-                down_count integer,
-                leading_stock text,
-                leading_stock_change real,
-                created_at text not null default current_timestamp,
-                updated_at text not null default current_timestamp,
-                primary key(trade_date, board_type, board_code)
-            );
-
-            create index if not exists idx_hot_stocks_date_rank
-                on hot_stocks(trade_date, rank_no);
-            create index if not exists idx_stock_hot_ranks_date_source_rank
-                on stock_hot_ranks(trade_date, source, period, list_type, rank_no);
-            create index if not exists idx_hot_boards_date_type_rank
-                on hot_boards(trade_date, board_type, rank_no);
-            """
-        )
-        self._ensure_daily_review_columns()
-        self._ensure_data_job_columns()
-        self._ensure_market_breadth_columns()
-        self._ensure_hot_stock_columns()
-        self._ensure_stock_hot_rank_table()
-        self._ensure_premarket_columns()
-        self._ensure_plate_rotation_tables()
-        self.conn.commit()
 
     def _ensure_table_columns(self, table_name: str, columns: dict[str, str]) -> None:
         existing = {
@@ -1092,6 +531,307 @@ class MarketDB:
         self.conn.commit()
         return counts
 
+    def import_fuyao_limit_up_pool(self, trade_date: str, records: list[dict[str, Any]]) -> int:
+        """Import Fuyao limit-up pool and enrich the main limit-up event table."""
+        self._upsert_trade_day(trade_date)
+        count = 0
+        for item in records:
+            ticker = str(item.get("ticker") or "").strip()
+            if not ticker:
+                continue
+            stock_name = item.get("name") or item.get("stock_name")
+            reason = item.get("limit_up_reason")
+            limit_up_time = _hhmm_to_hhmmss(item.get("limit_up_time"))
+            self._upsert_stock(ticker, stock_name)
+            self.conn.execute(
+                """
+                insert into fuyao_limit_up_pool(
+                    trade_date, ticker, thscode, stock_name, last_price,
+                    price_change_ratio_pct, limit_up_reason, continue_day_text,
+                    continue_day_cnt, limit_up_time, seal_money, max_seal_money,
+                    is_new, is_st, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(trade_date, ticker) do update set
+                    thscode = excluded.thscode,
+                    stock_name = excluded.stock_name,
+                    last_price = excluded.last_price,
+                    price_change_ratio_pct = excluded.price_change_ratio_pct,
+                    limit_up_reason = excluded.limit_up_reason,
+                    continue_day_text = excluded.continue_day_text,
+                    continue_day_cnt = excluded.continue_day_cnt,
+                    limit_up_time = excluded.limit_up_time,
+                    seal_money = excluded.seal_money,
+                    max_seal_money = excluded.max_seal_money,
+                    is_new = excluded.is_new,
+                    is_st = excluded.is_st,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    trade_date,
+                    ticker,
+                    item.get("thscode"),
+                    stock_name,
+                    item.get("last_price"),
+                    item.get("price_change_ratio_pct"),
+                    reason,
+                    item.get("continue_day_text"),
+                    item.get("continue_day_cnt"),
+                    limit_up_time,
+                    item.get("seal_money"),
+                    item.get("max_seal_money"),
+                    int(bool(item.get("is_new"))) if item.get("is_new") is not None else None,
+                    int(bool(item.get("is_st"))) if item.get("is_st") is not None else None,
+                    _json_text(item),
+                ),
+            )
+            self.conn.execute(
+                """
+                update limit_up_events
+                set
+                    stock_name = coalesce(?, stock_name),
+                    stock_price = coalesce(?, stock_price),
+                    up_limit_desc = coalesce(?, up_limit_desc),
+                    up_limit_keep_times = coalesce(?, up_limit_keep_times),
+                    up_limit_time = coalesce(?, up_limit_time),
+                    reason = coalesce(?, reason),
+                    fengdan_money = coalesce(?, fengdan_money),
+                    updated_at = current_timestamp
+                where trade_date = ? and stock_code = ?
+                """,
+                (
+                    stock_name,
+                    item.get("last_price"),
+                    item.get("continue_day_text"),
+                    item.get("continue_day_cnt"),
+                    limit_up_time,
+                    reason,
+                    item.get("seal_money"),
+                    trade_date,
+                    ticker,
+                ),
+            )
+            if reason:
+                self.conn.execute(
+                    """
+                    update limit_up_plate_map
+                    set stock_reason = ?, updated_at = current_timestamp
+                    where trade_date = ? and stock_code = ?
+                    """,
+                    (reason, trade_date, ticker),
+                )
+            count += 1
+        self._store_raw_response(
+            trade_date=trade_date,
+            source="fuyao",
+            endpoint="limit_up_pool",
+            params={"date": trade_date},
+            payload={"item": records},
+        )
+        self.conn.commit()
+        return count
+
+    def import_fuyao_limit_up_ladder(self, payload: dict[str, Any]) -> int:
+        """Import Fuyao limit-up ladder matrix."""
+        count = 0
+        for day in payload.get("item") or []:
+            raw_date = str(day.get("date") or "")
+            trade_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}" if len(raw_date) == 8 else raw_date
+            if not trade_date:
+                continue
+            self._upsert_trade_day(trade_date)
+            for board_key, stocks in (day.get("boards") or {}).items():
+                for stock in stocks or []:
+                    ticker = str(stock.get("ticker") or "").strip()
+                    if not ticker:
+                        continue
+                    stock_name = stock.get("name")
+                    self._upsert_stock(ticker, stock_name)
+                    self.conn.execute(
+                        """
+                        insert into fuyao_limit_up_ladder(
+                            trade_date, board_key, board_num, ticker, thscode, stock_name,
+                            seal_nextday, sign_level, raw_payload
+                        )
+                        values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        on conflict(trade_date, board_key, ticker) do update set
+                            board_num = excluded.board_num,
+                            thscode = excluded.thscode,
+                            stock_name = excluded.stock_name,
+                            seal_nextday = excluded.seal_nextday,
+                            sign_level = excluded.sign_level,
+                            raw_payload = excluded.raw_payload,
+                            updated_at = current_timestamp
+                        """,
+                        (
+                            trade_date,
+                            board_key,
+                            stock.get("board_num"),
+                            ticker,
+                            stock.get("thscode"),
+                            stock_name,
+                            int(bool(stock.get("seal_nextday"))) if stock.get("seal_nextday") is not None else None,
+                            stock.get("sign_level"),
+                            _json_text(stock),
+                        ),
+                    )
+                    count += 1
+        self._store_raw_response(
+            trade_date=None,
+            source="fuyao",
+            endpoint="limit_up_ladder",
+            params={},
+            payload=payload,
+        )
+        self.conn.commit()
+        return count
+
+    def import_fuyao_anomaly_reasons(self, trade_date: str, records: list[dict[str, Any]]) -> int:
+        self._upsert_trade_day(trade_date)
+        count = 0
+        for item in records:
+            thscode = str(item.get("thscode") or "").strip()
+            if not thscode:
+                continue
+            ticker = thscode.split(".", 1)[0]
+            keywords = item.get("keyword_list")
+            self._upsert_stock(ticker, item.get("stock_name"))
+            self.conn.execute(
+                """
+                insert into fuyao_anomaly_reasons(
+                    trade_date, thscode, ticker, stock_name, tag_name,
+                    analysis_content, keyword_list, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(trade_date, thscode, tag_name, analysis_content) do update set
+                    ticker = excluded.ticker,
+                    stock_name = excluded.stock_name,
+                    keyword_list = excluded.keyword_list,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    trade_date,
+                    thscode,
+                    ticker,
+                    item.get("stock_name"),
+                    item.get("tag_name") or "",
+                    item.get("analysis_content") or "",
+                    _json_text(keywords if keywords is not None else []),
+                    _json_text(item),
+                ),
+            )
+            count += 1
+        self._store_raw_response(
+            trade_date=trade_date,
+            source="fuyao",
+            endpoint="anomaly_analysis_stock",
+            params={"date": trade_date},
+            payload={"item": records},
+        )
+        self.conn.commit()
+        return count
+
+    def import_fuyao_ths_index_catalog(self, tag: str, records: list[dict[str, Any]]) -> int:
+        count = 0
+        for item in records:
+            thscode = str(item.get("thscode") or "").strip()
+            if not thscode:
+                continue
+            self._upsert_plate(thscode, item.get("name"))
+            self.conn.execute(
+                """
+                insert into fuyao_ths_index_catalog(tag, thscode, index_name, raw_payload)
+                values(?, ?, ?, ?)
+                on conflict(tag, thscode) do update set
+                    index_name = excluded.index_name,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (tag, thscode, item.get("name"), _json_text(item)),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_fuyao_ths_index_constituents(self, index_thscode: str, records: list[dict[str, Any]]) -> int:
+        count = 0
+        for item in records:
+            stock_thscode = str(item.get("thscode") or "").strip()
+            if not stock_thscode:
+                continue
+            ticker = str(item.get("ticker") or stock_thscode.split(".", 1)[0])
+            stock_name = item.get("name")
+            self._upsert_stock(ticker, stock_name)
+            self.conn.execute(
+                """
+                insert into fuyao_ths_index_constituents(
+                    index_thscode, stock_thscode, ticker, stock_name, raw_payload
+                )
+                values(?, ?, ?, ?, ?)
+                on conflict(index_thscode, stock_thscode) do update set
+                    ticker = excluded.ticker,
+                    stock_name = excluded.stock_name,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (index_thscode, stock_thscode, ticker, stock_name, _json_text(item)),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def import_fuyao_stock_snapshots(self, snapshot_date: str, records: list[dict[str, Any]]) -> int:
+        self._upsert_trade_day(snapshot_date)
+        count = 0
+        for item in records:
+            thscode = str(item.get("thscode") or "").strip()
+            if not thscode:
+                continue
+            ticker = str(item.get("ticker") or thscode.split(".", 1)[0])
+            self.conn.execute(
+                """
+                insert into fuyao_stock_snapshots(
+                    snapshot_date, thscode, ticker, last_price, price_change,
+                    price_change_ratio_pct, open_price, high_price, low_price,
+                    prev_price, volume, turnover, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(snapshot_date, thscode) do update set
+                    ticker = excluded.ticker,
+                    last_price = excluded.last_price,
+                    price_change = excluded.price_change,
+                    price_change_ratio_pct = excluded.price_change_ratio_pct,
+                    open_price = excluded.open_price,
+                    high_price = excluded.high_price,
+                    low_price = excluded.low_price,
+                    prev_price = excluded.prev_price,
+                    volume = excluded.volume,
+                    turnover = excluded.turnover,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    snapshot_date,
+                    thscode,
+                    ticker,
+                    item.get("last_price"),
+                    item.get("price_change"),
+                    item.get("price_change_ratio_pct"),
+                    item.get("open_price"),
+                    item.get("high_price"),
+                    item.get("low_price"),
+                    item.get("prev_price"),
+                    item.get("volume"),
+                    item.get("turnover"),
+                    _json_text(item),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
     def _upsert_trade_day(self, trade_date: str) -> None:
         self.conn.execute(
             """
@@ -1129,15 +869,25 @@ class MarketDB:
         )
 
     def _upsert_limit_up_event(self, trade_date: str, stock: dict[str, Any]) -> None:
+        # Build tags JSON: accept list directly, or split reason by "+"
+        tags_raw = stock.get("tags")
+        if isinstance(tags_raw, list):
+            tags_json = json.dumps(tags_raw, ensure_ascii=False)
+        elif isinstance(tags_raw, str) and tags_raw.startswith("["):
+            tags_json = tags_raw  # already JSON
+        else:
+            reason = stock.get("reason") or ""
+            tags_json = json.dumps([t.strip() for t in reason.split("+") if t.strip()], ensure_ascii=False) if reason else None
+
         self.conn.execute(
             """
             insert into limit_up_events(
                 trade_date, stock_code, stock_name, stock_price, up_limit_desc,
-                up_limit_keep_times, up_limit_type, up_limit_time, reason,
+                up_limit_keep_times, up_limit_type, up_limit_time, reason, tags,
                 fengdan_money, fengdan_rate, turnover_rate, circulation_value,
                 market_type, amount
             )
-            values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(trade_date, stock_code) do update set
                 stock_name = excluded.stock_name,
                 stock_price = coalesce(excluded.stock_price, limit_up_events.stock_price),
@@ -1146,6 +896,7 @@ class MarketDB:
                 up_limit_type = coalesce(excluded.up_limit_type, limit_up_events.up_limit_type),
                 up_limit_time = coalesce(excluded.up_limit_time, limit_up_events.up_limit_time),
                 reason = coalesce(excluded.reason, limit_up_events.reason),
+                tags = coalesce(excluded.tags, limit_up_events.tags),
                 fengdan_money = coalesce(excluded.fengdan_money, limit_up_events.fengdan_money),
                 fengdan_rate = coalesce(excluded.fengdan_rate, limit_up_events.fengdan_rate),
                 turnover_rate = coalesce(excluded.turnover_rate, limit_up_events.turnover_rate),
@@ -1164,6 +915,7 @@ class MarketDB:
                 stock.get("up_limit_type"),
                 stock.get("up_limit_time"),
                 stock.get("reason"),
+                tags_json,
                 stock.get("fengdan_money"),
                 stock.get("fengdan_rate"),
                 stock.get("turnover_ration_real"),

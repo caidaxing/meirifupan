@@ -95,13 +95,15 @@ def compute_emotion(
         indices = get_indices(conn, date)
 
     # Use Shanghai Composite (000001.SS) as primary reference, fallback to first index
-    market_change = 0.0
+    market_change = None
     for idx in indices:
         if idx.get("index_code") in ("000001.SS", "1A0001"):
-            market_change = idx.get("change_pct") or 0.0
+            market_change = idx.get("change_pct")
             break
-    if market_change == 0.0 and indices:
+    if market_change is None and indices:
         market_change = indices[0].get("change_pct") or 0.0
+    elif market_change is None:
+        market_change = 0.0
 
     # --- 3. Limit-up / limit-down ratio ---
     limit_down = DEFAULT_LIMIT_DOWN
@@ -117,7 +119,12 @@ def compute_emotion(
         (date, date),
     ).fetchone()
     if row:
-        limit_down = row["event_count"] or row["breadth_count"] or DEFAULT_LIMIT_DOWN
+        event_count = row["event_count"]
+        breadth_count = row["breadth_count"]
+        if event_count is not None and event_count > 0:
+            limit_down = event_count
+        elif breadth_count is not None and breadth_count > 0:
+            limit_down = breadth_count
     limit_ratio = total / limit_down if limit_down > 0 else total
 
     # --- 4. Compute individual scores ---

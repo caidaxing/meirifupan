@@ -5,6 +5,20 @@ export interface IndexData {
   change_pct: number
 }
 
+export interface AuthUser {
+  id: number
+  username: string
+  created_at: string
+  last_login_at: string | null
+}
+
+export interface AuthSession {
+  token: string
+  expires_at: string
+  username: string
+  user: AuthUser
+}
+
 export interface LimitUpStats {
   total: number
   first_board: number
@@ -194,6 +208,41 @@ export interface EmotionTrendItem {
   total_score: number
   level: string
   advice: string
+}
+
+export type EmotionModuleKey =
+  | 'cycle'
+  | 'intraday'
+  | 'cycle_vip'
+  | 'cycle_year'
+  | 'space_board'
+  | 'popularity'
+  | 'popularity_compare'
+  | 'heat_single'
+
+export interface EmotionModuleTab {
+  key: EmotionModuleKey
+  label: string
+  status: ReviewPayloadStatus
+  summary: Record<string, unknown>
+  items: Array<Record<string, unknown>>
+  warnings: string[]
+}
+
+export interface EmotionModulesData {
+  date: string
+  days: number
+  modules: EmotionModuleTab[]
+}
+
+export interface EmotionRealtimeData {
+  date: string
+  as_of: string
+  mode: 'realtime'
+  refresh_seconds: number
+  source_status: Record<string, string>
+  market: Record<string, unknown>
+  modules: EmotionModuleTab[]
 }
 
 export interface MarketOverviewTrendItem {
@@ -426,6 +475,76 @@ export interface ReviewPayload<TItem = Record<string, unknown>, TSummary = Recor
   filters: Record<string, unknown>
   items: TItem[]
   warnings: string[]
+}
+
+export interface AnnouncementTypeSummary {
+  notice_type: string
+  count: number
+}
+
+export interface AnnouncementItem {
+  art_code: string | null
+  notice_date: string
+  stock_code: string
+  stock_name: string
+  notice_type: string
+  title: string
+  source_url: string
+  updated_at?: string | null
+}
+
+export interface AnnouncementListData {
+  date: string
+  status: ReviewPayloadStatus
+  updated_at: string
+  summary: {
+    total: number
+    returned: number
+    limit: number
+    types: AnnouncementTypeSummary[]
+  }
+  filters: Record<string, unknown>
+  items: AnnouncementItem[]
+  warnings: string[]
+}
+
+export interface AnnouncementDetail extends AnnouncementItem {
+  notice_title: string
+  published_at: string
+  content_text: string
+  content_chars: number
+  pdf_url: string
+  json_path: string
+  text_path: string
+  cache_status: 'cached' | 'fetched'
+}
+
+export interface NewsSourceSummary {
+  source: string
+  count: number
+}
+
+export interface NewsItem {
+  guide_date: string
+  source: string
+  published_at?: string | null
+  title: string
+  content?: string | null
+  url?: string | null
+}
+
+export interface NewsListData {
+  requested_date?: string
+  date: string
+  status: ReviewPayloadStatus
+  summary: {
+    data_date?: string
+    date_mode?: 'exact' | 'next_available'
+    total: number
+    returned: number
+    sources: NewsSourceSummary[]
+  }
+  items: NewsItem[]
 }
 
 export type ReviewSubmoduleKey =

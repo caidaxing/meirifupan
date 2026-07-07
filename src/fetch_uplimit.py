@@ -12,68 +12,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from api_client import QuantAPI
 from db import MarketDB
 from fuyao_limit_up import enrich_day_data_with_fuyao, fetch_limit_up_pool, update_limit_up_reasons
+from utils import clean, compact_time, is_blank, stock_code, to_float, to_int, to_text
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "data", "market_review.db")
-
-
-def _is_blank(value: Any) -> bool:
-    if value is None:
-        return True
-    try:
-        return value != value
-    except Exception:
-        return False
-
-
-def _clean(value: Any) -> Any:
-    if _is_blank(value):
-        return None
-    if hasattr(value, "item"):
-        try:
-            return _clean(value.item())
-        except Exception:
-            pass
-    return value
-
-
-def _num(value: Any) -> float | None:
-    value = _clean(value)
-    if value in ("", "-", "--", None):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _int(value: Any) -> int | None:
-    value = _num(value)
-    return int(value) if value is not None else None
-
-
-def _text(value: Any) -> str | None:
-    value = _clean(value)
-    if value is None:
-        return None
-    return str(value)
-
-
-def _stock_code(value: Any) -> str:
-    code = str(value or "").strip()
-    if code.lower().startswith(("sh", "sz", "bj")):
-        code = code[2:]
-    return code.upper()
-
-
-def _compact_time(value: Any) -> str | None:
-    text = _text(value)
-    if not text:
-        return None
-    if len(text) == 6 and text.isdigit():
-        return f"{text[:2]}:{text[2:4]}:{text[4:]}"
-    return text
 
 
 def _safe_plate_code(name: str) -> str:
@@ -97,7 +40,7 @@ def fetch_akshare_uplimit_day(date: str) -> dict[str, Any]:
     records = _dataframe_records(df)
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in records:
-        industry = _text(row.get("所属行业")) or "未分组"
+        industry = to_text(row.get("所属行业")) or "未分组"
         grouped.setdefault(industry, []).append(row)
 
     plates = []
@@ -107,19 +50,19 @@ def fetch_akshare_uplimit_day(date: str) -> dict[str, Any]:
         stocks = []
         for row in rows:
             stocks.append({
-                "stock_code": _stock_code(row.get("代码")),
-                "stock_name": _text(row.get("名称")),
-                "stock_price": _num(row.get("最新价")),
-                "up_limit_desc": _text(row.get("涨停统计")),
-                "up_limit_keep_times": _int(row.get("连板数")) or 1,
+                "stock_code": stock_code(row.get("代码")),
+                "stock_name": to_text(row.get("名称")),
+                "stock_price": to_float(row.get("最新价")),
+                "up_limit_desc": to_text(row.get("涨停统计")),
+                "up_limit_keep_times": to_int(row.get("连板数")) or 1,
                 "up_limit_type": "akshare_limit_up",
-                "up_limit_time": _compact_time(row.get("首次封板时间") or row.get("最后封板时间")),
+                "up_limit_time": compact_time(row.get("首次封板时间") or row.get("最后封板时间")),
                 "reason": plate_name,
-                "fengdan_money": _num(row.get("封板资金")),
-                "turnover_ration_real": _num(row.get("换手率")),
-                "actualcirculation_value": _num(row.get("流通市值")),
-                "amount": _num(row.get("成交额")),
-                "market_type": _text(row.get("所属行业")),
+                "fengdan_money": to_float(row.get("封板资金")),
+                "turnover_ration_real": to_float(row.get("换手率")),
+                "actualcirculation_value": to_float(row.get("流通市值")),
+                "amount": to_float(row.get("成交额")),
+                "market_type": to_text(row.get("所属行业")),
                 "raw": row,
             })
         plates.append({
@@ -193,72 +136,139 @@ def fetch_sentiment_data(api: QuantAPI, db: MarketDB, days: int = 15):
     return count
 
 
+def fetch_fuyao_uplimit_day(date: str) -> dict[str, Any] | None:
+    """Use Fuyao limit-up pool as primary source. Returns None if unavailable."""
+    api_key = os.environ.get("FUYAO_API_KEY")
+    if not api_key:
+        return None
+    try:
+        items = fetch_limit_up_pool(api_key, date)
+    except Exception as exc:
+        print(f"    Fuyao 涨停池请求失败: {exc}")
+        return None
+    if not items:
+        return None
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        reason = item.get("limit_up_reason") or "未分组"
+        grouped.setdefault(reason, []).append(item)
+
+    plates = []
+    hot_plates = []
+    for reason, rows in sorted(grouped.items(), key=lambda x: -len(x[1])):
+        plate_code = _safe_plate_code(reason)
+        stocks = []
+        for row in rows:
+            ticker = str(row.get("ticker") or "").strip()
+            if not ticker:
+                continue
+            limit_up_time = row.get("limit_up_time")
+            if limit_up_time and len(str(limit_up_time)) == 5:
+                limit_up_time = f"{limit_up_time}:00"
+            stocks.append({
+                "stock_code": stock_code(ticker),
+                "stock_name": to_text(row.get("stock_name")),
+                "stock_price": to_float(row.get("last_price")),
+                "up_limit_desc": to_text(row.get("continue_day_text")),
+                "up_limit_keep_times": to_int(row.get("continue_day_cnt")) or 1,
+                "up_limit_type": "fuyao_limit_up",
+                "up_limit_time": to_text(limit_up_time),
+                "reason": reason,
+                "fengdan_money": to_float(row.get("seal_money")),
+                "fengdan_rate": to_float(row.get("max_seal_money")),
+                "turnover_rate": to_float(row.get("turnover")),
+                "circulation_value": None,
+                "amount": None,
+                "market_type": None,
+            })
+        if stocks:
+            plates.append({
+                "plate_code": plate_code,
+                "plate_name": reason,
+                "plate_score": len(stocks),
+                "stocks": stocks,
+            })
+            hot_plates.append([reason, plate_code, len(stocks)])
+
+    total_stocks = sum(len(p["stocks"]) for p in plates)
+    print(f"    ✅ Fuyao: {len(plates)} 个板块, {total_stocks} 只涨停股")
+    return {
+        "date": date,
+        "uplimit_reason": plates,
+        "uplimit_hot": hot_plates[:20],
+        "plate_rank": [
+            {"plate_code": item[1], "plate_name": item[0], "score": item[2]}
+            for item in hot_plates[:30]
+        ],
+    }
+
+
 def fetch_uplimit_data(api: QuantAPI, date: str, db: MarketDB):
-    """爬取某一天的涨停数据"""
+    """爬取某一天的涨停数据（优先级: Fuyao → Quantzz → AkShare）"""
     print(f"\n{'='*50}")
     print(f"爬取 {date} 的涨停数据...")
     print(f"{'='*50}")
 
-    # 1. 涨停原因（含板块、个股详情）
-    print("  [1/3] 涨停原因...")
-    try:
-        reason_data = api.get_uplimit_reason(date, page_size=200)
-    except Exception as exc:
-        if not _is_auth_error(exc):
-            raise
-        print(f"    ⚠️  Quant token 无权限或已过期，改用免费涨停池兜底: {exc}")
-        day_data = fetch_akshare_uplimit_day(date)
+    # 1. 优先 Fuyao
+    print("  [1/3] 涨停数据...")
+    day_data = fetch_fuyao_uplimit_day(date)
+    raw_source = "fuyao.limit_up_pool"
+
+    # 2. Fuyao 不可用时降级 Quantzz
+    if day_data is None:
+        print("    Fuyao 不可用，尝试 Quantzz...")
+        try:
+            reason_data = api.get_uplimit_reason(date, page_size=200)
+            if reason_data.get("code") == 20000 and reason_data.get("data"):
+                plates = reason_data["data"]
+                total_stocks = sum(len(p.get("stocks", [])) for p in plates)
+                print(f"    ✅ Quantzz: {len(plates)} 个板块, {total_stocks} 只涨停股")
+            else:
+                plates = []
+                print(f"    ⚠️  Quantzz 无数据")
+            day_data = {
+                "date": date,
+                "uplimit_reason": plates,
+                "uplimit_hot": [],
+                "plate_rank": [],
+            }
+            raw_source = "quantzz.api"
+
+            # 补充 Quantzz 热门板块和板块排名
+            print("  [2/3] 涨停梯队...")
+            hot_data = api.get_uplimit_hot(date, limit=20)
+            if hot_data.get("code") == 20000 and hot_data.get("data"):
+                day_data["uplimit_hot"] = hot_data["data"].get("plate", [])
+                print(f"    ✅ {len(day_data['uplimit_hot'])} 个热门板块")
+            else:
+                print(f"    ⚠️  无数据")
+
+            print("  [3/3] 板块排名...")
+            try:
+                rank_data = api.get_plate_rank(date, limit=30)
+                if rank_data.get("code") == 20000 and rank_data.get("data"):
+                    day_data["plate_rank"] = rank_data["data"]
+                    print(f"    ✅ {len(day_data['plate_rank'])} 个板块")
+                else:
+                    print(f"    ⚠️  无数据")
+            except Exception as e:
+                print(f"    ⚠️  板块排名失败: {e}")
+
+        except Exception as exc:
+            if not _is_auth_error(exc):
+                raise
+            # 3. Quantzz 也失败时降级 AkShare
+            print(f"    ⚠️  Quantzz 失败，改用 AkShare 兜底: {exc}")
+            day_data = fetch_akshare_uplimit_day(date)
+            raw_source = "akshare.stock_zt_pool_em"
+
+    # 用 Fuyao 数据补充原因字段（如果主源不是 Fuyao）
+    if raw_source != "fuyao.limit_up_pool":
         _enrich_day_data_from_fuyao(date, day_data)
-        db.import_uplimit_day(day_data, raw_source="akshare.stock_zt_pool_em")
-        _backfill_db_from_fuyao(date, db.db_path)
-        total_stocks = sum(len(p.get("stocks", [])) for p in day_data.get("uplimit_reason") or [])
-        print(f"    ✅ 免费源写入 {len(day_data.get('uplimit_reason') or [])} 个行业, {total_stocks} 只涨停股")
-        print(f"  💾 已写入数据库: {db.db_path}")
-        return day_data
 
-    if reason_data.get("code") == 20000 and reason_data.get("data"):
-        plates = reason_data["data"]
-        total_stocks = sum(len(p.get("stocks", [])) for p in plates)
-        print(f"    ✅ {len(plates)} 个板块, {total_stocks} 只涨停股")
-    else:
-        plates = []
-        print(f"    ⚠️  无数据或接口返回异常")
-
-    # 2. 涨停梯队
-    print("  [2/3] 涨停梯队...")
-    hot_data = api.get_uplimit_hot(date, limit=20)
-    if hot_data.get("code") == 20000 and hot_data.get("data"):
-        hot_plates = hot_data["data"].get("plate", [])
-        print(f"    ✅ {len(hot_plates)} 个热门板块")
-    else:
-        hot_plates = []
-        print(f"    ⚠️  无数据")
-
-    # 3. 板块排名
-    print("  [3/3] 板块排名...")
-    try:
-        rank_data = api.get_plate_rank(date, limit=30)
-        if rank_data.get("code") == 20000 and rank_data.get("data"):
-            plate_ranks = rank_data["data"]
-            print(f"    ✅ {len(plate_ranks)} 个板块")
-        else:
-            plate_ranks = []
-            print(f"    ⚠️  无数据")
-    except Exception as e:
-        plate_ranks = []
-        print(f"    ⚠️  板块排名失败，跳过: {e}")
-
-    day_data = {
-        "date": date,
-        "uplimit_reason": plates,
-        "uplimit_hot": hot_plates,
-        "plate_rank": plate_ranks,
-    }
-
-    db.import_uplimit_day(day_data, raw_source="api")
-    _backfill_db_from_fuyao(date, db.db_path)
+    db.import_uplimit_day(day_data, raw_source=raw_source)
     print(f"  💾 已写入数据库: {db.db_path}")
-
     return day_data
 
 

@@ -2,6 +2,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import sys
 
@@ -10,9 +11,17 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from db import MarketDB
 from fuyao_limit_up import enrich_day_data_with_fuyao, shanghai_midnight_ms, update_limit_up_reasons
+import fuyao_limit_up
 
 
 class FuyaoLimitUpTests(unittest.TestCase):
+    def test_ssl_context_uses_certifi_when_available(self):
+        with patch.object(fuyao_limit_up.certifi, "where", return_value="/tmp/cacert.pem"), \
+                patch.object(fuyao_limit_up.ssl, "create_default_context") as create_context:
+            fuyao_limit_up.make_ssl_context()
+
+        create_context.assert_called_once_with(cafile="/tmp/cacert.pem")
+
     def test_enrich_day_data_replaces_industry_reason(self):
         day_data = {
             "date": "2026-06-25",

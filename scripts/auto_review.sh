@@ -10,7 +10,8 @@ HOST="${HOST:-127.0.0.1}"
 BACKFILL_DAYS="${BACKFILL_DAYS:-30}"
 KLINE_LIMIT="${KLINE_LIMIT:-10}"
 DAILY_UPDATE_AT="${DAILY_UPDATE_AT:-17:30}"
-PREMARKET_UPDATE_AT="${PREMARKET_UPDATE_AT:-08:30}"
+NEWS_UPDATE_INTERVAL_MINUTES="${NEWS_UPDATE_INTERVAL_MINUTES:-10}"
+ANNOUNCEMENT_UPDATE_ATS="${ANNOUNCEMENT_UPDATE_ATS:-17:30,22:00}"
 
 mkdir -p "${LOG_DIR}" "${RUN_DIR}"
 
@@ -33,7 +34,7 @@ usage() {
 命令:
   once        立即补最近 ${BACKFILL_DAYS} 个交易日数据，并生成复盘
   server      后台启动/重启数据展示页 http://${HOST}:${PORT}
-  schedule    后台启动每日自动调度：盘前 ${PREMARKET_UPDATE_AT}，复盘 ${DAILY_UPDATE_AT}
+  schedule    后台启动自动调度：新闻每 ${NEWS_UPDATE_INTERVAL_MINUTES} 分钟，公告 ${ANNOUNCEMENT_UPDATE_ATS}，复盘 ${DAILY_UPDATE_AT}
   status      查看数据库、数据页、调度器状态
   stop        停止本脚本启动的数据页和调度器
 
@@ -42,7 +43,8 @@ usage() {
   KLINE_LIMIT=10
   PORT=8765
   DAILY_UPDATE_AT=17:30
-  PREMARKET_UPDATE_AT=08:30
+  NEWS_UPDATE_INTERVAL_MINUTES=10
+  ANNOUNCEMENT_UPDATE_ATS=17:30,22:00
   PYTHON_BIN=/usr/local/bin/python3
 EOF
 }
@@ -144,12 +146,13 @@ cmd_schedule() {
   stop_pid_file "自动调度器" "${RUN_DIR}/daily_scheduler.pid"
   nohup env \
     DAILY_UPDATE_AT="${DAILY_UPDATE_AT}" \
-    PREMARKET_UPDATE_AT="${PREMARKET_UPDATE_AT}" \
+    NEWS_UPDATE_INTERVAL_MINUTES="${NEWS_UPDATE_INTERVAL_MINUTES}" \
+    ANNOUNCEMENT_UPDATE_ATS="${ANNOUNCEMENT_UPDATE_ATS}" \
     DAILY_KLINE_LIMIT="${KLINE_LIMIT}" \
     "${PYTHON_BIN}" src/daily_scheduler.py \
       --db "${DB_PATH}" \
       --run-at "${DAILY_UPDATE_AT}" \
-      --premarket-at "${PREMARKET_UPDATE_AT}" \
+      --news-interval-minutes "${NEWS_UPDATE_INTERVAL_MINUTES}" \
       --kline-limit "${KLINE_LIMIT}" \
     > "${LOG_DIR}/daily_scheduler.log" 2>&1 &
   echo "$!" > "${RUN_DIR}/daily_scheduler.pid"

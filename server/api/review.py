@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
+from server.services.announcement_queries import get_announcement_detail, list_announcements
 from server.services.emotion_scorer import compute_emotion
+from server.services.news_queries import list_news, list_news_dates
+from server.services.realtime_emotion import collect_realtime_emotion
 from server.services.review_queries import (
     get_all_stocks,
     get_board_advancement,
@@ -12,6 +15,7 @@ from server.services.review_queries import (
     get_capital_flow,
     get_dates,
     get_emotion_heat_trend,
+    get_emotion_modules,
     get_high_stocks,
     get_hot_boards_rank,
     get_hot_plates,
@@ -40,9 +44,69 @@ from server.services.review_queries import (
     get_saved_review,
     get_seal_quality,
     get_stock_hot_ranks,
+    DB_PATH,
 )
 
 router = APIRouter()
+
+
+@router.get("/api/announcements")
+def get_announcements(
+    date: str = Query(..., description="Notice date, e.g. 2026-06-30"),
+    notice_type: str | None = Query(None, description="Announcement type"),
+    q: str | None = Query(None, description="Search keyword"),
+    limit: int = Query(500, ge=1, le=500, description="Maximum rows"),
+    include_ipo: bool = Query(False, description="Include IPO/listing-review announcements"),
+):
+    """Return stock announcements for a given date."""
+    conn = get_connection()
+    try:
+        return list_announcements(conn, date, notice_type=notice_type, query=q, limit=limit, include_ipo=include_ipo)
+    finally:
+        conn.close()
+
+
+@router.get("/api/announcements/{art_code}")
+def get_announcement(art_code: str):
+    """Return announcement original text and local cache paths."""
+    conn = get_connection()
+    try:
+        return get_announcement_detail(
+            conn,
+            art_code,
+            cache_root=DB_PATH.parent / "announcements",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@router.get("/api/news")
+def get_news(
+    date: str = Query(..., description="Guide date, e.g. 2026-07-03"),
+    source: str | None = Query(None, description="News source"),
+    q: str | None = Query(None, description="Search keyword"),
+    limit: int = Query(200, ge=1, le=500, description="Maximum rows"),
+):
+    """Return daily news items from premarket_news."""
+    conn = get_connection()
+    try:
+        return list_news(conn, date, source=source, query=q, limit=limit)
+    finally:
+        conn.close()
+
+
+@router.get("/api/news/dates")
+def get_news_dates():
+    """Return available dates for news and announcements."""
+    conn = get_connection()
+    try:
+        return {"dates": list_news_dates(conn)}
+    finally:
+        conn.close()
 
 
 @router.get("/api/review")
@@ -226,6 +290,30 @@ def get_emotion_heat(
         }
     finally:
         conn.close()
+
+
+@router.get("/api/emotion/modules")
+def get_emotion_module_tabs(
+    date: str = Query(..., description="End date, e.g. 2026-06-03"),
+    days: int = Query(60, description="Number of trading days to include"),
+):
+    """Return Quantzz-style emotion modules."""
+    conn = get_connection()
+    try:
+        available = get_dates(conn)
+        if date not in available:
+            raise HTTPException(status_code=404, detail=f"No data for date {date}.")
+        return get_emotion_modules(conn, date, days)
+    finally:
+        conn.close()
+
+
+@router.get("/api/emotion/realtime")
+def get_emotion_realtime(
+    date: str | None = Query(None, description="Trade date, empty means today in Asia/Shanghai."),
+):
+    """Return realtime intraday emotion modules from live sources."""
+    return collect_realtime_emotion(date=date, db_path=DB_PATH)
 
 
 @router.get("/api/quantzz/daily")

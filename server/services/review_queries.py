@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 
+from utils import row_to_dict, rows_to_list
+
+
 DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).resolve().parent.parent.parent / "data" / "market_review.db")))
 
 
@@ -34,18 +37,10 @@ def get_latest_data_job(conn: sqlite3.Connection, job_name: str = "daily_update"
     ).fetchone()
     if not row:
         return None
-    result = _row_to_dict(row)
+    result = row_to_dict(row)
     result["details"] = _json_dict(result.get("details"))
     result["details"] = _compact_job_details(result["details"])
     return result
-
-
-def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return dict(row)
-
-
-def _rows_to_list(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
-    return [_row_to_dict(r) for r in rows]
 
 
 def _json_list(value: str | None) -> list[Any]:
@@ -178,7 +173,7 @@ def get_indices(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
         """,
         (date,),
     ).fetchall()
-    return _rows_to_list(rows)
+    return rows_to_list(rows)
 
 
 def get_limit_up_stats(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
@@ -195,7 +190,7 @@ def get_limit_up_stats(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
         """,
         (date,),
     ).fetchone()
-    current = _row_to_dict(row) if row else {
+    current = row_to_dict(row) if row else {
         "total": 0, "first_board": 0, "multi_board": 0, "highest_board": 1
     }
 
@@ -249,7 +244,7 @@ def get_board_tiers(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]
 
         stock_list = []
         for s in stocks:
-            stock_dict = _row_to_dict(s)
+            stock_dict = row_to_dict(s)
             # Get plate info for this stock
             plates = conn.execute(
                 """
@@ -294,7 +289,7 @@ def get_hot_plates(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
 
     result = []
     for plate in plates:
-        p = _row_to_dict(plate)
+        p = row_to_dict(plate)
         plate_code = p["plate_code"]
 
         # Count how many recent days this plate was in hot rank
@@ -373,7 +368,7 @@ def get_recent_hot_plates_with_stocks(
 
     plates: list[dict[str, Any]] = []
     for plate_row in plate_rows:
-        plate = _row_to_dict(plate_row)
+        plate = row_to_dict(plate_row)
         stock_rows = conn.execute(
             f"""
             SELECT
@@ -399,7 +394,7 @@ def get_recent_hot_plates_with_stocks(
             """,
             (date, date, date, date, plate["plate_code"], *recent_dates, stock_limit),
         ).fetchall()
-        plate["stocks"] = _rows_to_list(stock_rows)
+        plate["stocks"] = rows_to_list(stock_rows)
         plates.append(plate)
 
     return {
@@ -427,7 +422,7 @@ def get_high_stocks(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]
 
     result = []
     for s in stocks:
-        stock_dict = _row_to_dict(s)
+        stock_dict = row_to_dict(s)
         # Get plate info
         plates = conn.execute(
             """
@@ -463,7 +458,7 @@ def get_all_stocks(conn: sqlite3.Connection, date: str) -> list[dict[str, Any]]:
 
     result = []
     for s in stocks:
-        stock_dict = _row_to_dict(s)
+        stock_dict = row_to_dict(s)
         # Get the highest-ranked plate for this stock as primary plate
         plate_row = conn.execute(
             """
@@ -514,7 +509,7 @@ def get_review_limit_up_reasons(conn: sqlite3.Connection, date: str) -> dict[str
         """,
         (date,),
     ).fetchone()
-    summary = _row_to_dict(stats_row) if stats_row else {}
+    summary = row_to_dict(stats_row) if stats_row else {}
     summary = {
         "limit_up_count": summary.get("limit_up_count") or 0,
         "first_board_count": summary.get("first_board_count") or 0,
@@ -870,15 +865,21 @@ def get_review_lhb(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
     """Return daily Dragon Tiger List rows."""
     rows = conn.execute(
         """
-        SELECT stock_code, stock_name, reason, buy_amount, sell_amount, net_buy_amount, raw_payload
-        FROM lhb_daily
-        WHERE trade_date = ?
-        ORDER BY ABS(COALESCE(net_buy_amount, 0)) DESC, stock_code ASC
+        SELECT
+            l.stock_code, l.stock_name, l.reason,
+            l.buy_amount, l.sell_amount, l.net_buy_amount, l.raw_payload,
+            u.up_limit_desc, u.up_limit_keep_times, u.up_limit_time, u.fengdan_money
+        FROM lhb_daily l
+        LEFT JOIN limit_up_events u
+            ON u.trade_date = l.trade_date AND u.stock_code = l.stock_code
+        WHERE l.trade_date = ?
+        ORDER BY ABS(COALESCE(l.net_buy_amount, 0)) DESC, l.stock_code ASC
         """,
         (date,),
     ).fetchall()
     items = []
     for row in rows:
+        raw = _json_dict(row["raw_payload"])
         items.append({
             "stock_code": row["stock_code"],
             "stock_name": row["stock_name"],
@@ -886,11 +887,24 @@ def get_review_lhb(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
             "buy_amount": row["buy_amount"],
             "sell_amount": row["sell_amount"],
             "net_buy_amount": row["net_buy_amount"],
+            "close_price": raw.get("close_price"),
+            "change_pct": raw.get("change_pct"),
+            "turnover_rate": raw.get("turnover_rate"),
+            "interpretation": (raw.get("raw") or {}).get("解读") if isinstance(raw.get("raw"), dict) else None,
+            "is_limit_up": row["up_limit_desc"] is not None,
+            "board_label": row["up_limit_desc"],
+            "board_level": row["up_limit_keep_times"],
+            "up_limit_time": row["up_limit_time"],
+            "seal_amount": row["fengdan_money"],
             "concepts": _get_stock_concepts(conn, date, row["stock_code"]),
-            "raw": _json_dict(row["raw_payload"]),
+            "raw": raw,
         })
     summary = {
         "count": len(items),
+        "distinct_stock_count": len({item["stock_code"] for item in items}),
+        "limit_up_stock_count": len({item["stock_code"] for item in items if item["is_limit_up"]}),
+        "net_buy_count": sum(1 for item in items if (item["net_buy_amount"] or 0) >= 0),
+        "net_sell_count": sum(1 for item in items if (item["net_buy_amount"] or 0) < 0),
         "buy_amount": sum(item["buy_amount"] or 0 for item in items),
         "sell_amount": sum(item["sell_amount"] or 0 for item in items),
         "net_buy_amount": sum(item["net_buy_amount"] or 0 for item in items),
@@ -1009,7 +1023,7 @@ def get_market_environment(conn: sqlite3.Connection, date: str) -> dict[str, Any
         """,
         (date,),
     ).fetchone()
-    breadth = _row_to_dict(breadth_row) if breadth_row else {
+    breadth = row_to_dict(breadth_row) if breadth_row else {
         "total_count": 0,
         "up_count": 0,
         "down_count": 0,
@@ -1103,11 +1117,11 @@ def get_market_environment(conn: sqlite3.Connection, date: str) -> dict[str, Any
         "breadth": breadth,
         "limit_down_total": limit_down_total,
         "broken_limit_up_total": broken_limit_up_total,
-        "limit_down": _rows_to_list(limit_down_rows),
-        "broken_limit_up": _rows_to_list(broken_rows),
-        "lhb": _rows_to_list(lhb_rows),
-        "movement_summary": _rows_to_list(movement_rows),
-        "market_hot": _rows_to_list(market_hot_rows),
+        "limit_down": rows_to_list(limit_down_rows),
+        "broken_limit_up": rows_to_list(broken_rows),
+        "lhb": rows_to_list(lhb_rows),
+        "movement_summary": rows_to_list(movement_rows),
+        "market_hot": rows_to_list(market_hot_rows),
     }
 
 
@@ -1141,7 +1155,7 @@ def get_market_overview_trend(conn: sqlite3.Connection, date: str, days: int = 5
             """,
             (trade_date,),
         ).fetchone()
-        breadth = _row_to_dict(breadth_row) if breadth_row else {}
+        breadth = row_to_dict(breadth_row) if breadth_row else {}
 
         limit_up_stats = get_limit_up_stats(conn, trade_date)
         event_limit_up_count = limit_up_stats.get("total") or 0
@@ -1226,7 +1240,7 @@ def get_emotion_heat_trend(conn: sqlite3.Connection, date: str, days: int = 60) 
             """,
             (trade_date,),
         ).fetchone()
-        breadth = _row_to_dict(breadth_row) if breadth_row else {}
+        breadth = row_to_dict(breadth_row) if breadth_row else {}
 
         limit_up_stats = get_limit_up_stats(conn, trade_date)
         event_limit_up_count = limit_up_stats.get("total") or 0
@@ -1283,7 +1297,7 @@ def get_emotion_heat_trend(conn: sqlite3.Connection, date: str, days: int = 60) 
             """,
             (trade_date,),
         ).fetchall()
-        hot_items = _rows_to_list(hot_rows)
+        hot_items = rows_to_list(hot_rows)
         hot_changes = [
             float(item["change_pct"])
             for item in hot_items
@@ -1331,7 +1345,7 @@ def get_emotion_heat_trend(conn: sqlite3.Connection, date: str, days: int = 60) 
             "avg_fengdan_money": _round_or_none(seal_row["avg_fengdan_money"] if seal_row else None, 0),
             "avg_fengdan_rate": _round_or_none(seal_row["avg_fengdan_rate"] if seal_row else None, 2),
             "highest_board": highest_board,
-            "space_board_stocks": _rows_to_list(space_rows),
+            "space_board_stocks": rows_to_list(space_rows),
             "hot_top20_count": len(hot_items),
             "hot_top20_avg_change_pct": _round_or_none(sum(hot_changes) / len(hot_changes), 2) if hot_changes else None,
             "hot_top20_up_count": sum(1 for value in hot_changes if value > 0),
@@ -1417,8 +1431,8 @@ def get_quantzz_daily_overview(conn: sqlite3.Connection, date: str, days: int = 
             (date,),
         ).fetchone()["total"],
         "heavy_fall_hot_count": latest_heat.get("hot_top20_heavy_fall_count") or 0,
-        "limit_down": _rows_to_list(limit_down_rows),
-        "broken_limit_up": _rows_to_list(broken_rows),
+        "limit_down": rows_to_list(limit_down_rows),
+        "broken_limit_up": rows_to_list(broken_rows),
     }
 
     missing_sources = [
@@ -1480,6 +1494,154 @@ def get_quantzz_daily_overview(conn: sqlite3.Connection, date: str, days: int = 
     }
 
 
+def get_emotion_modules(conn: sqlite3.Connection, date: str, days: int = 60) -> dict[str, Any]:
+    """Return Quantzz-style emotion module tabs built from local tables."""
+    from server.services.emotion_scorer import compute_emotion
+
+    heat_trend = get_emotion_heat_trend(conn, date, days)
+    yearly_trend = get_emotion_heat_trend(conn, date, 250)
+    quantzz = get_quantzz_daily_overview(conn, date, days)
+    emotion = compute_emotion(conn, date)
+    latest_heat = quantzz.get("emotion_heat") or (heat_trend[-1] if heat_trend else {})
+    prev_heat = heat_trend[-2] if len(heat_trend) >= 2 else {}
+
+    movement_rows = conn.execute(
+        """
+        select alert_time, stock_code, stock_name, alert_type, alert_text, price, change_pct
+        from movement_alerts
+        where trade_date = ?
+        order by alert_time desc
+        limit 80
+        """,
+        (date,),
+    ).fetchall()
+    movement_items = rows_to_list(movement_rows)
+    movement_summary = conn.execute(
+        """
+        select alert_type, count(*) as count
+        from movement_alerts
+        where trade_date = ?
+        group by alert_type
+        order by count desc
+        limit 8
+        """,
+        (date,),
+    ).fetchall()
+
+    current_hot = quantzz.get("popularity", {}).get("top20") or latest_heat.get("hot_top20") or []
+    prev_hot = prev_heat.get("hot_top20") or []
+    prev_rank = {item.get("stock_code"): item.get("rank_no") for item in prev_hot if item.get("stock_code")}
+    hot_compare = []
+    for item in current_hot:
+        code = item.get("stock_code")
+        old_rank = prev_rank.get(code)
+        rank = item.get("rank_no")
+        rank_change = (old_rank - rank) if old_rank is not None and rank is not None else None
+        hot_compare.append({**item, "prev_rank_no": old_rank, "rank_change": rank_change})
+
+    yearly_limit_up = [row.get("limit_up_count") or 0 for row in yearly_trend]
+    yearly_high_board = [row.get("highest_board") or 0 for row in yearly_trend]
+    yearly_up_rate = [row.get("up_rate") for row in yearly_trend if row.get("up_rate") is not None]
+
+    modules = [
+        {
+            "key": "cycle",
+            "label": "情绪周期",
+            "status": "ok",
+            "summary": {
+                "score": emotion.get("total_score"),
+                "level": emotion.get("level"),
+                "advice": emotion.get("advice"),
+                "limit_up_count": latest_heat.get("limit_up_count"),
+                "highest_board": latest_heat.get("highest_board"),
+                "broken_rate": latest_heat.get("broken_rate"),
+            },
+            "items": heat_trend,
+            "warnings": [],
+        },
+        {
+            "key": "intraday",
+            "label": "情绪日内",
+            "status": "ok" if movement_items else "empty",
+            "summary": {
+                "alert_count": len(movement_items),
+                "top_types": rows_to_list(movement_summary),
+            },
+            "items": movement_items,
+            "warnings": [] if movement_items else ["暂无日内异动数据"],
+        },
+        {
+            "key": "cycle_vip",
+            "label": "情绪周期VIP",
+            "status": "ok",
+            "summary": {
+                "seal_success_rate": latest_heat.get("seal_success_rate"),
+                "broken_rate": latest_heat.get("broken_rate"),
+                "hot_top20_avg_change_pct": latest_heat.get("hot_top20_avg_change_pct"),
+                "hot_top20_heavy_fall_count": latest_heat.get("hot_top20_heavy_fall_count"),
+                "limit_down_count": quantzz.get("loss_feedback", {}).get("limit_down_count"),
+                "broken_limit_up_count": quantzz.get("loss_feedback", {}).get("broken_limit_up_count"),
+            },
+            "items": quantzz.get("promotion", {}).get("levels") or [],
+            "warnings": [],
+        },
+        {
+            "key": "cycle_year",
+            "label": "情绪周期-年",
+            "status": "ok" if yearly_trend else "empty",
+            "summary": {
+                "days": len(yearly_trend),
+                "max_limit_up_count": max(yearly_limit_up) if yearly_limit_up else 0,
+                "max_highest_board": max(yearly_high_board) if yearly_high_board else 0,
+                "avg_up_rate": _round_or_none(sum(yearly_up_rate) / len(yearly_up_rate), 1) if yearly_up_rate else None,
+            },
+            "items": yearly_trend,
+            "warnings": [],
+        },
+        {
+            "key": "space_board",
+            "label": "空间板",
+            "status": "ok" if quantzz.get("space_board", {}).get("stocks") else "empty",
+            "summary": {
+                "highest_board": quantzz.get("space_board", {}).get("highest_board") or 0,
+                "stock_count": len(quantzz.get("space_board", {}).get("stocks") or []),
+            },
+            "items": quantzz.get("space_board", {}).get("stocks") or [],
+            "warnings": [],
+        },
+        {
+            "key": "popularity",
+            "label": "人气",
+            "status": "ok" if current_hot else "empty",
+            "summary": quantzz.get("popularity") or {},
+            "items": current_hot,
+            "warnings": [],
+        },
+        {
+            "key": "popularity_compare",
+            "label": "人气对比",
+            "status": "ok" if hot_compare else "empty",
+            "summary": {
+                "current_count": len(current_hot),
+                "prev_count": len(prev_hot),
+                "new_count": sum(1 for item in hot_compare if item.get("prev_rank_no") is None),
+            },
+            "items": hot_compare,
+            "warnings": [] if prev_hot else ["缺少前一交易日人气榜，暂不能计算完整排名变化"],
+        },
+        {
+            "key": "heat_single",
+            "label": "情绪热度单页",
+            "status": "ok" if latest_heat else "empty",
+            "summary": latest_heat,
+            "items": heat_trend,
+            "warnings": [],
+        },
+    ]
+
+    return {"date": date, "days": days, "modules": modules}
+
+
 def get_premarket_guide(conn: sqlite3.Connection, guide_date: str) -> dict[str, Any] | None:
     """Return a generated pre-market guide."""
     row = conn.execute(
@@ -1494,7 +1656,7 @@ def get_premarket_guide(conn: sqlite3.Connection, guide_date: str) -> dict[str, 
     ).fetchone()
     if not row:
         return None
-    result = _row_to_dict(row)
+    result = row_to_dict(row)
     raw = _json_dict(result.get("raw_payload"))
     result["generated_at"] = raw.get("generated_at") or result.get("updated_at") or result.get("created_at")
     result["market_snapshot"] = raw.get("market_snapshot") or {}
@@ -1544,7 +1706,7 @@ def get_saved_review(conn: sqlite3.Connection, date: str) -> dict[str, Any] | No
     ).fetchone()
     if not row:
         return None
-    review = _row_to_dict(row)
+    review = row_to_dict(row)
     raw_payload = _json_dict(review.pop("raw_payload", None))
     review["strongest_plates"] = _json_list(review.pop("strongest_plates"))
     review["core_stocks"] = _json_list(review.pop("core_stocks"))
@@ -1581,7 +1743,7 @@ def get_seal_quality(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
         return {"total": 0, "one_seal": 0, "normal_seal": 0, "broken_seal": 0,
                 "avg_seal_rate": 0, "avg_seal_money": 0, "first_board": 0, "multi_board": 0}
 
-    result = _row_to_dict(row)
+    result = row_to_dict(row)
 
     # Compute derived metrics
     total = result["total"]
@@ -1603,7 +1765,7 @@ def get_seal_quality(conn: sqlite3.Connection, date: str) -> dict[str, Any]:
             (prev_date,),
         ).fetchone()
         if prev_row:
-            prev = _row_to_dict(prev_row)
+            prev = row_to_dict(prev_row)
             result["prev_total"] = prev["total"]
             result["prev_broken_rate"] = round(prev["broken_seal"] / prev["total"] * 100, 1) if prev["total"] > 0 else 0
             result["prev_avg_seal_rate"] = prev["avg_seal_rate"] or 0
@@ -1742,7 +1904,7 @@ def get_hot_stocks_derived(conn: sqlite3.Connection, date: str) -> list[dict[str
 
     result = []
     for s in stocks:
-        d = _row_to_dict(s)
+        d = row_to_dict(s)
         # Get plates
         plates = conn.execute(
             """
@@ -1774,7 +1936,7 @@ def get_hot_stocks_rank(conn: sqlite3.Connection, date: str, limit: int = 30) ->
         """,
         (date, limit),
     ).fetchall()
-    return _rows_to_list(rows)
+    return rows_to_list(rows)
 
 
 def get_hot_boards_rank(conn: sqlite3.Connection, date: str, board_type: str = "concept", limit: int = 20) -> list[dict[str, Any]]:
@@ -1791,7 +1953,7 @@ def get_hot_boards_rank(conn: sqlite3.Connection, date: str, board_type: str = "
         """,
         (date, board_type, limit),
     ).fetchall()
-    return _rows_to_list(rows)
+    return rows_to_list(rows)
 
 
 def get_plate_rotation_snapshot(
@@ -1859,7 +2021,7 @@ def get_plate_rotation_snapshot(
             """,
             (day, source, top_n),
         ).fetchall()
-        items = _rows_to_list(rows)
+        items = rows_to_list(rows)
         rank_by_date[day] = items
         if not selected_code and day == latest_date and items:
             selected_code = items[0]["plate_code"]
@@ -1943,10 +2105,10 @@ def _get_plate_rotation_detail(
         (plate_code, source, plate_code, source, day_end, stock_limit),
     ).fetchall()
 
-    result = _row_to_dict(plate_row)
-    result["trend"] = _rows_to_list(trend_rows)
-    result["reasons"] = _rows_to_list(reason_rows)
-    result["stocks"] = _rows_to_list(stock_rows)
+    result = row_to_dict(plate_row)
+    result["trend"] = rows_to_list(trend_rows)
+    result["reasons"] = rows_to_list(reason_rows)
+    result["stocks"] = rows_to_list(stock_rows)
     return result
 
 
@@ -1976,7 +2138,7 @@ def get_stock_hot_ranks(
     ).fetchall()
     result = []
     for row in rows:
-        item = _row_to_dict(row)
+        item = row_to_dict(row)
         item["concept_tags"] = _json_list(item.get("concept_tags"))
         result.append(item)
     return result
