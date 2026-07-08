@@ -368,16 +368,50 @@ SCHEMA_SQL = """
             );
 
             create table if not exists stock_announcements (
+                art_code text primary key,
                 notice_date text not null,
                 stock_code text,
                 stock_name text,
                 notice_type text,
                 title text not null,
-                url text,
+                source text not null default 'eastmoney',
+                source_url text,
+                pdf_url text,
+                content_status text not null default 'pending',
                 raw_payload text,
                 created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp
+            );
+
+            create table if not exists stock_announcement_contents (
+                art_code text primary key,
+                notice_title text,
+                notice_date text,
+                published_at text,
+                page_size integer,
+                content_text text,
+                pdf_url text,
+                source_url text,
+                raw_payload text,
+                fetched_at text not null default current_timestamp,
+                created_at text not null default current_timestamp,
                 updated_at text not null default current_timestamp,
-                primary key(notice_date, title)
+                foreign key(art_code) references stock_announcements(art_code)
+            );
+
+            create table if not exists stock_announcement_insights (
+                art_code text primary key,
+                stock_code text,
+                notice_type text,
+                summary text,
+                key_points text,
+                impact_level text,
+                sentiment text,
+                extracted_metrics text,
+                related_themes text,
+                generated_at text not null default current_timestamp,
+                raw_payload text,
+                foreign key(art_code) references stock_announcements(art_code)
             );
 
             create table if not exists us_stock_quotes (
@@ -605,6 +639,10 @@ SCHEMA_SQL = """
                 on premarket_news(guide_date, published_at);
             create index if not exists idx_stock_announcements_date
                 on stock_announcements(notice_date);
+            create index if not exists idx_stock_announcements_stock_date
+                on stock_announcements(stock_code, notice_date);
+            create index if not exists idx_stock_announcements_type_date
+                on stock_announcements(notice_type, notice_date);
             create index if not exists idx_us_stock_quotes_date
                 on us_stock_quotes(quote_date, change_pct);
             create index if not exists idx_plate_rotation_rank_date_rank
@@ -910,4 +948,198 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     ensure_premarket_columns(conn)
     ensure_plate_rotation_tables(conn)
     ensure_limit_up_tags_column(conn)
+    migrate_stock_announcements(conn)
     conn.commit()
+
+
+def migrate_stock_announcements(conn: sqlite3.Connection) -> None:
+    """Upgrade announcements to the stable art_code based schema."""
+    import json
+    import re
+
+    cols = {r[1] for r in conn.execute("pragma table_info(stock_announcements)").fetchall()}
+    if not cols:
+        return
+
+    pk_cols = [r[1] for r in conn.execute("pragma table_info(stock_announcements)").fetchall() if r[5] > 0]
+    needs_rebuild = "art_code" not in cols or pk_cols != ["art_code"]
+
+    if not needs_rebuild:
+        conn.executescript(
+            """
+            create table if not exists stock_announcement_contents (
+                art_code text primary key,
+                notice_title text,
+                notice_date text,
+                published_at text,
+                page_size integer,
+                content_text text,
+                pdf_url text,
+                source_url text,
+                raw_payload text,
+                fetched_at text not null default current_timestamp,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                foreign key(art_code) references stock_announcements(art_code)
+            );
+            create table if not exists stock_announcement_insights (
+                art_code text primary key,
+                stock_code text,
+                notice_type text,
+                summary text,
+                key_points text,
+                impact_level text,
+                sentiment text,
+                extracted_metrics text,
+                related_themes text,
+                generated_at text not null default current_timestamp,
+                raw_payload text,
+                foreign key(art_code) references stock_announcements(art_code)
+            );
+            create index if not exists idx_stock_announcements_date
+                on stock_announcements(notice_date);
+            create index if not exists idx_stock_announcements_stock_date
+                on stock_announcements(stock_code, notice_date);
+            create index if not exists idx_stock_announcements_type_date
+                on stock_announcements(notice_type, notice_date);
+            """
+        )
+        return
+
+    conn.execute("pragma foreign_keys = off")
+    conn.execute(
+        """
+        create table if not exists stock_announcements_new (
+            art_code text primary key,
+            notice_date text not null,
+            stock_code text,
+            stock_name text,
+            notice_type text,
+            title text not null,
+            source text not null default 'eastmoney',
+            source_url text,
+            pdf_url text,
+            content_status text not null default 'pending',
+            raw_payload text,
+            created_at text not null default current_timestamp,
+            updated_at text not null default current_timestamp
+        )
+        """
+    )
+
+    select_cols = ["notice_date", "stock_code", "stock_name", "notice_type", "title", "raw_payload", "created_at", "updated_at"]
+    optional_cols = {
+        "art_code": "art_code",
+        "source": "source",
+        "source_url": "source_url",
+        "url": "url",
+        "pdf_url": "pdf_url",
+        "content_status": "content_status",
+    }
+    for col in optional_cols:
+        if col in cols:
+            select_cols.append(col)
+    rows = conn.execute(f"select {', '.join(select_cols)} from stock_announcements").fetchall()
+    for row in rows:
+        data = dict(zip(select_cols, row))
+        raw_payload = data.get("raw_payload")
+        raw = {}
+        if raw_payload:
+            try:
+                parsed = json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
+                raw = parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                raw = {}
+
+        source_url = data.get("source_url") or data.get("url") or raw.get("网址") or raw.get("url") or ""
+        art_code = data.get("art_code")
+        if not art_code and source_url:
+            match = re.search(r"(AN\d{16,})", str(source_url))
+            if match:
+                art_code = match.group(1)
+        if not art_code and raw_payload:
+            match = re.search(r"(AN\d{16,})", str(raw_payload))
+            if match:
+                art_code = match.group(1)
+        if not art_code:
+            continue
+
+        conn.execute(
+            """
+            insert into stock_announcements_new(
+                art_code, notice_date, stock_code, stock_name, notice_type, title,
+                source, source_url, pdf_url, content_status, raw_payload, created_at, updated_at
+            )
+            values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(art_code) do update set
+                notice_date = excluded.notice_date,
+                stock_code = excluded.stock_code,
+                stock_name = excluded.stock_name,
+                notice_type = excluded.notice_type,
+                title = excluded.title,
+                source = excluded.source,
+                source_url = excluded.source_url,
+                pdf_url = excluded.pdf_url,
+                content_status = excluded.content_status,
+                raw_payload = excluded.raw_payload,
+                updated_at = excluded.updated_at
+            """,
+            (
+                art_code,
+                data.get("notice_date"),
+                data.get("stock_code"),
+                data.get("stock_name"),
+                data.get("notice_type"),
+                data.get("title"),
+                data.get("source") or "eastmoney",
+                source_url or None,
+                data.get("pdf_url"),
+                data.get("content_status") or "pending",
+                raw_payload,
+                data.get("created_at"),
+                data.get("updated_at"),
+            ),
+        )
+
+    conn.execute("drop table stock_announcements")
+    conn.execute("alter table stock_announcements_new rename to stock_announcements")
+    conn.executescript(
+        """
+        create index if not exists idx_stock_announcements_date
+            on stock_announcements(notice_date);
+        create index if not exists idx_stock_announcements_stock_date
+            on stock_announcements(stock_code, notice_date);
+        create index if not exists idx_stock_announcements_type_date
+            on stock_announcements(notice_type, notice_date);
+        create table if not exists stock_announcement_contents (
+            art_code text primary key,
+            notice_title text,
+            notice_date text,
+            published_at text,
+            page_size integer,
+            content_text text,
+            pdf_url text,
+            source_url text,
+            raw_payload text,
+            fetched_at text not null default current_timestamp,
+            created_at text not null default current_timestamp,
+            updated_at text not null default current_timestamp,
+            foreign key(art_code) references stock_announcements(art_code)
+        );
+        create table if not exists stock_announcement_insights (
+            art_code text primary key,
+            stock_code text,
+            notice_type text,
+            summary text,
+            key_points text,
+            impact_level text,
+            sentiment text,
+            extracted_metrics text,
+            related_themes text,
+            generated_at text not null default current_timestamp,
+            raw_payload text,
+            foreign key(art_code) references stock_announcements(art_code)
+        );
+        """
+    )
+    conn.execute("pragma foreign_keys = on")

@@ -1621,44 +1621,166 @@ class MarketDB:
         return count
 
     def import_stock_announcements(self, notice_date: str, records: list[dict[str, Any]]) -> int:
-        """导入上市公司公告。"""
+        """导入上市公司公告，以 art_code 为主键去重。"""
+        import json
+        import re
+
         count = 0
-        valid_records = [r for r in records if str(r.get("title") or "").strip()]
-        if valid_records:
-            self.conn.execute("delete from stock_announcements where notice_date = ?", (notice_date,))
-        for r in valid_records:
+        for r in records:
             title = str(r.get("title") or "").strip()
+            if not title:
+                continue
             stock_code = str(r.get("stock_code") or "").strip()
             stock_name = r.get("stock_name")
             if stock_code:
                 self._upsert_stock(stock_code, stock_name)
+
+            source_url = str(r.get("source_url") or r.get("url") or "").strip()
+            art_code = str(r.get("art_code") or "").strip()
+            if not art_code and source_url:
+                match = re.search(r"(AN\d{16,})", source_url)
+                if match:
+                    art_code = match.group(1)
+            if not art_code:
+                raw = r.get("raw_payload") or {}
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw)
+                    except Exception:
+                        raw = {}
+                if isinstance(raw, dict):
+                    raw_url = str(raw.get("网址") or raw.get("url") or "").strip()
+                    if raw_url:
+                        source_url = source_url or raw_url
+                        match = re.search(r"(AN\d{16,})", raw_url)
+                        if match:
+                            art_code = match.group(1)
+                if not art_code:
+                    match = re.search(r"(AN\d{16,})", _json_text(r))
+                    if match:
+                        art_code = match.group(1)
+            if not art_code:
+                continue
+
             self.conn.execute(
                 """
                 insert into stock_announcements(
-                    notice_date, stock_code, stock_name, notice_type, title, url, raw_payload
+                    art_code, notice_date, stock_code, stock_name, notice_type, title,
+                    source, source_url, pdf_url, content_status, raw_payload
                 )
-                values(?, ?, ?, ?, ?, ?, ?)
-                on conflict(notice_date, title) do update set
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(art_code) do update set
+                    notice_date = excluded.notice_date,
                     stock_code = excluded.stock_code,
                     stock_name = excluded.stock_name,
                     notice_type = excluded.notice_type,
-                    url = excluded.url,
+                    title = excluded.title,
+                    source = excluded.source,
+                    source_url = excluded.source_url,
+                    pdf_url = coalesce(excluded.pdf_url, stock_announcements.pdf_url),
+                    content_status = case
+                        when stock_announcements.content_status = 'fetched' then stock_announcements.content_status
+                        else excluded.content_status
+                    end,
                     raw_payload = excluded.raw_payload,
                     updated_at = current_timestamp
                 """,
                 (
+                    art_code,
                     notice_date,
                     stock_code or None,
                     stock_name,
                     r.get("notice_type"),
                     title,
-                    r.get("url"),
+                    r.get("source") or "eastmoney",
+                    source_url or None,
+                    r.get("pdf_url"),
+                    r.get("content_status") or "pending",
                     _json_text(r.get("raw_payload") or r),
                 ),
             )
             count += 1
         self.conn.commit()
         return count
+
+    def import_announcement_content(self, art_code: str, content_data: dict[str, Any]) -> bool:
+        """保存公告正文，更新公告索引状态。"""
+        content_text = str(content_data.get("content_text") or "").strip()
+        if not content_text:
+            return False
+        self.conn.execute(
+            """
+            insert into stock_announcement_contents(
+                art_code, notice_title, notice_date, published_at, page_size,
+                content_text, pdf_url, source_url, raw_payload
+            )
+            values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(art_code) do update set
+                notice_title = excluded.notice_title,
+                notice_date = excluded.notice_date,
+                published_at = excluded.published_at,
+                page_size = excluded.page_size,
+                content_text = excluded.content_text,
+                pdf_url = excluded.pdf_url,
+                source_url = excluded.source_url,
+                raw_payload = excluded.raw_payload,
+                fetched_at = current_timestamp,
+                updated_at = current_timestamp
+            """,
+            (
+                art_code,
+                content_data.get("notice_title"),
+                content_data.get("notice_date"),
+                content_data.get("published_at"),
+                content_data.get("page_size", 1),
+                content_text,
+                content_data.get("pdf_url"),
+                content_data.get("source_url"),
+                _json_text(content_data.get("raw_payload") or content_data),
+            ),
+        )
+        self.conn.execute(
+            """
+            update stock_announcements
+            set content_status = 'fetched',
+                pdf_url = coalesce(?, pdf_url),
+                source_url = coalesce(?, source_url),
+                updated_at = current_timestamp
+            where art_code = ?
+            """,
+            (content_data.get("pdf_url"), content_data.get("source_url"), art_code),
+        )
+        self.conn.commit()
+        return True
+
+    def mark_announcement_failed(self, art_code: str) -> None:
+        """标记公告正文抓取失败。"""
+        self.conn.execute(
+            """
+            update stock_announcements
+            set content_status = 'failed', updated_at = current_timestamp
+            where art_code = ? and content_status != 'fetched'
+            """,
+            (art_code,),
+        )
+        self.conn.commit()
+
+    def get_pending_announcements(self, notice_date: str, limit: int = 50) -> list[dict[str, Any]]:
+        """获取待抓取正文的公告列表。"""
+        rows = self.conn.execute(
+            """
+            select art_code, stock_code, stock_name, notice_type, title, source_url
+            from stock_announcements
+            where notice_date = ? and content_status = 'pending'
+            order by
+                case when notice_type in ('业绩预告','业绩快报','重大资产重组','增持','减持','回购','风险警示')
+                     then 0 else 1 end,
+                art_code
+            limit ?
+            """,
+            (notice_date, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def import_us_stock_quotes(self, quote_date: str, records: list[dict[str, Any]]) -> int:
         """导入隔夜美股核心个股行情。"""

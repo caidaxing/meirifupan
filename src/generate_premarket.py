@@ -405,7 +405,7 @@ def _news(conn: sqlite3.Connection, guide_date: str, limit: int = 12) -> list[di
 def _announcements(conn: sqlite3.Connection, notice_date: str, limit: int = 12) -> list[dict[str, Any]]:
     return rows_to_list(conn.execute(
         """
-        select stock_code, stock_name, notice_date, notice_type, title, url
+        select stock_code, stock_name, notice_date, notice_type, title, source_url as url
         from stock_announcements
         where notice_date = ?
         order by stock_code is null, stock_code, title

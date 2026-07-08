@@ -1375,7 +1375,7 @@ class MarketDbTests(unittest.TestCase):
                     "notice_date": "2026-06-09",
                     "notice_type": "重大事项",
                     "title": "签订 AI 服务器大额订单",
-                    "url": "https://example.com/notice/1",
+                    "url": "https://data.eastmoney.com/notices/detail/600001/AN202606091800000001.html",
                 }
             ])
             db.import_us_stock_quotes("2026-06-10", [
@@ -2496,10 +2496,20 @@ class MarketDbTests(unittest.TestCase):
                 {"symbol": "NVDA", "stock_name": "英伟达", "change_pct": 1.23}
             ])
             db.import_stock_announcements("2026-06-09", [
-                {"stock_code": "600001", "stock_name": "旧公告股", "title": "旧公告"}
+                {
+                    "stock_code": "600001",
+                    "stock_name": "旧公告股",
+                    "title": "旧公告",
+                    "url": "https://data.eastmoney.com/notices/detail/600001/AN202606091800000001.html",
+                }
             ])
             db.import_stock_announcements("2026-06-09", [
-                {"stock_code": "600002", "stock_name": "新公告股", "title": "新公告"}
+                {
+                    "stock_code": "600002",
+                    "stock_name": "新公告股",
+                    "title": "新公告",
+                    "url": "https://data.eastmoney.com/notices/detail/600002/AN202606091800000002.html",
+                }
             ])
             db.close()
 
@@ -2519,7 +2529,7 @@ class MarketDbTests(unittest.TestCase):
 
         self.assertEqual([("cls", "新新闻")], news_rows)
         self.assertEqual([("NVDA", "英伟达")], us_rows)
-        self.assertEqual([("600002", "新公告")], notice_rows)
+        self.assertEqual([("600001", "旧公告"), ("600002", "新公告")], notice_rows)
 
 
 if __name__ == "__main__":

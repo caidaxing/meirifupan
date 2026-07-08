@@ -70,15 +70,28 @@ def list_announcements(
     include_ipo: bool = False,
 ) -> dict[str, Any]:
     """Return announcements for one notice date from the current table."""
-    rows = conn.execute(
-        """
-        select notice_date, stock_code, stock_name, notice_type, title, url, raw_payload, updated_at
-        from stock_announcements
-        where notice_date = ?
-        order by stock_code desc, title asc
-        """,
-        (date,),
-    ).fetchall()
+    columns = _table_columns(conn, "stock_announcements")
+    if "art_code" in columns:
+        rows = conn.execute(
+            """
+            select art_code, notice_date, stock_code, stock_name, notice_type, title,
+                   source_url, pdf_url, content_status, raw_payload, updated_at
+            from stock_announcements
+            where notice_date = ?
+            order by stock_code desc, title asc
+            """,
+            (date,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            select notice_date, stock_code, stock_name, notice_type, title, url, raw_payload, updated_at
+            from stock_announcements
+            where notice_date = ?
+            order by stock_code desc, title asc
+            """,
+            (date,),
+        ).fetchall()
 
     filtered_items = []
     type_counter: dict[str, int] = {}
@@ -87,8 +100,8 @@ def list_announcements(
 
     for row in rows:
         raw_payload = _json_dict(row["raw_payload"])
-        source_url = row["url"] or raw_payload.get("网址") or raw_payload.get("url") or ""
-        art_code = parse_art_code(source_url, row["raw_payload"])
+        source_url = _row_value(row, "source_url") or _row_value(row, "url") or raw_payload.get("网址") or raw_payload.get("url") or ""
+        art_code = _row_value(row, "art_code") or parse_art_code(source_url, row["raw_payload"])
         item_type = row["notice_type"] or "未分类"
         item = {
             "art_code": art_code,
@@ -98,6 +111,8 @@ def list_announcements(
             "notice_type": item_type,
             "title": row["title"],
             "source_url": source_url,
+            "pdf_url": _row_value(row, "pdf_url") or "",
+            "content_status": _row_value(row, "content_status") or ("pending" if art_code else "missing_art_code"),
             "updated_at": row["updated_at"],
         }
 
@@ -210,6 +225,19 @@ def make_ssl_context() -> ssl.SSLContext:
 
 
 def _find_announcement_row(conn: sqlite3.Connection, art_code: str) -> sqlite3.Row | None:
+    columns = _table_columns(conn, "stock_announcements")
+    if "art_code" in columns:
+        row = conn.execute(
+            """
+            select art_code, notice_date, stock_code, stock_name, notice_type, title,
+                   source_url, pdf_url, content_status, raw_payload, updated_at
+            from stock_announcements
+            where art_code = ?
+            """,
+            (art_code,),
+        ).fetchone()
+        if row:
+            return row
     rows = conn.execute(
         """
         select notice_date, stock_code, stock_name, notice_type, title, url, raw_payload, updated_at
@@ -219,7 +247,7 @@ def _find_announcement_row(conn: sqlite3.Connection, art_code: str) -> sqlite3.R
     ).fetchall()
     for row in rows:
         raw_payload = _json_dict(row["raw_payload"])
-        source_url = row["url"] or raw_payload.get("网址") or raw_payload.get("url") or ""
+        source_url = _row_value(row, "url") or raw_payload.get("网址") or raw_payload.get("url") or ""
         if parse_art_code(source_url, row["raw_payload"]) == art_code:
             return row
     return None
@@ -227,7 +255,7 @@ def _find_announcement_row(conn: sqlite3.Connection, art_code: str) -> sqlite3.R
 
 def _row_base(row: sqlite3.Row, art_code: str) -> dict[str, Any]:
     raw_payload = _json_dict(row["raw_payload"])
-    source_url = row["url"] or raw_payload.get("网址") or raw_payload.get("url") or ""
+    source_url = _row_value(row, "source_url") or _row_value(row, "url") or raw_payload.get("网址") or raw_payload.get("url") or ""
     return {
         "art_code": art_code,
         "notice_date": row["notice_date"],
@@ -236,6 +264,8 @@ def _row_base(row: sqlite3.Row, art_code: str) -> dict[str, Any]:
         "notice_type": row["notice_type"] or "未分类",
         "title": row["title"],
         "source_url": source_url,
+        "pdf_url": _row_value(row, "pdf_url") or "",
+        "content_status": _row_value(row, "content_status") or "pending",
         "updated_at": row["updated_at"],
     }
 
@@ -275,6 +305,14 @@ def _json_dict(value: str | None) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"pragma table_info({table})")}
+
+
+def _row_value(row: sqlite3.Row, key: str) -> Any:
+    return row[key] if key in row.keys() else None
 
 
 def _search_text(item: dict[str, Any]) -> str:
