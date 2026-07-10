@@ -414,6 +414,67 @@ SCHEMA_SQL = """
                 foreign key(art_code) references stock_announcements(art_code)
             );
 
+            create table if not exists stock_research_reports (
+                info_code text primary key,
+                publish_date text not null,
+                stock_code text,
+                stock_name text,
+                market text,
+                title text not null,
+                org_code text,
+                org_name text,
+                org_short_name text,
+                industry_code text,
+                industry_name text,
+                rating_name text,
+                previous_rating_name text,
+                rating_change_code integer,
+                rating_change_name text,
+                target_price_low real,
+                target_price_high real,
+                source_url text,
+                detail_status text not null default 'pending',
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp
+            );
+
+            create table if not exists stock_research_report_authors (
+                info_code text not null,
+                author_id text not null,
+                author_name text,
+                sort_order integer not null default 0,
+                primary key(info_code, author_id),
+                foreign key(info_code) references stock_research_reports(info_code) on delete cascade
+            );
+
+            create table if not exists stock_research_report_forecasts (
+                info_code text not null,
+                forecast_year integer not null,
+                eps real,
+                pe real,
+                primary key(info_code, forecast_year),
+                foreign key(info_code) references stock_research_reports(info_code) on delete cascade
+            );
+
+            create table if not exists stock_research_report_contents (
+                info_code text primary key,
+                summary_text text,
+                pdf_url text,
+                local_pdf_path text,
+                pdf_status text not null default 'pending',
+                attach_pages integer,
+                declared_pdf_size_kb integer,
+                pdf_size integer,
+                pdf_sha256 text,
+                pdf_error text,
+                downloaded_at text,
+                raw_payload text,
+                created_at text not null default current_timestamp,
+                updated_at text not null default current_timestamp,
+                foreign key(info_code) references stock_research_reports(info_code) on delete cascade
+            );
+
             create table if not exists us_stock_quotes (
                 quote_date text not null,
                 symbol text not null,
@@ -643,6 +704,14 @@ SCHEMA_SQL = """
                 on stock_announcements(stock_code, notice_date);
             create index if not exists idx_stock_announcements_type_date
                 on stock_announcements(notice_type, notice_date);
+            create index if not exists idx_stock_research_reports_date
+                on stock_research_reports(publish_date);
+            create index if not exists idx_stock_research_reports_stock_date
+                on stock_research_reports(stock_code, publish_date);
+            create index if not exists idx_stock_research_reports_org_date
+                on stock_research_reports(org_code, publish_date);
+            create index if not exists idx_stock_research_reports_rating_date
+                on stock_research_reports(rating_name, publish_date);
             create index if not exists idx_us_stock_quotes_date
                 on us_stock_quotes(quote_date, change_pct);
             create index if not exists idx_plate_rotation_rank_date_rank

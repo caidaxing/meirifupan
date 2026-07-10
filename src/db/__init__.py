@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,34 @@ def _hhmm_to_hhmmss(value: Any) -> str | None:
     if len(text) == 5 and text[2] == ":":
         return f"{text}:00"
     return text
+
+
+def _number_or_none(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _research_rating_change_name(value: Any) -> str:
+    return {
+        0: "调高",
+        1: "调低",
+        2: "首次",
+        3: "维持",
+        4: "无",
+    }.get(_int_or_none(value), "-")
 
 
 class MarketDB:
@@ -1702,6 +1731,212 @@ class MarketDB:
             count += 1
         self.conn.commit()
         return count
+
+    def import_research_reports(self, records: list[dict[str, Any]], current_year: int | None = None) -> int:
+        """Import individual stock research reports and their normalized fields."""
+        count = 0
+        for record in records:
+            info_code = str(record.get("infoCode") or record.get("info_code") or "").strip()
+            title = str(record.get("title") or "").strip()
+            if not info_code or not title:
+                continue
+
+            stock_code = str(record.get("stockCode") or record.get("stock_code") or "").strip() or None
+            stock_name = record.get("stockName") or record.get("stock_name")
+            if stock_code:
+                self._upsert_stock(stock_code, stock_name)
+
+            publish_date = str(record.get("publishDate") or record.get("publish_date") or "").strip()
+            if not publish_date:
+                continue
+            org_code = record.get("orgCode") or record.get("org_code")
+            org_name = record.get("orgName") or record.get("org_name")
+            org_short_name = record.get("orgSName") or record.get("org_short_name")
+            industry_code = record.get("indvInduCode") or record.get("industry_code")
+            industry_name = record.get("indvInduName") or record.get("industry_name")
+            rating_change_code = _int_or_none(record.get("ratingChange") or record.get("rating_change_code"))
+            source_url = record.get("source_url") or f"https://data.eastmoney.com/report/info/{info_code}.html"
+
+            self.conn.execute(
+                """
+                insert into stock_research_reports(
+                    info_code, publish_date, stock_code, stock_name, market, title,
+                    org_code, org_name, org_short_name, industry_code, industry_name,
+                    rating_name, previous_rating_name, rating_change_code, rating_change_name,
+                    target_price_low, target_price_high, source_url, detail_status, raw_payload
+                )
+                values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                on conflict(info_code) do update set
+                    publish_date = excluded.publish_date,
+                    stock_code = excluded.stock_code,
+                    stock_name = excluded.stock_name,
+                    market = excluded.market,
+                    title = excluded.title,
+                    org_code = excluded.org_code,
+                    org_name = excluded.org_name,
+                    org_short_name = excluded.org_short_name,
+                    industry_code = excluded.industry_code,
+                    industry_name = excluded.industry_name,
+                    rating_name = excluded.rating_name,
+                    previous_rating_name = excluded.previous_rating_name,
+                    rating_change_code = excluded.rating_change_code,
+                    rating_change_name = excluded.rating_change_name,
+                    target_price_low = excluded.target_price_low,
+                    target_price_high = excluded.target_price_high,
+                    source_url = excluded.source_url,
+                    detail_status = case
+                        when stock_research_reports.detail_status = 'fetched' then stock_research_reports.detail_status
+                        else excluded.detail_status
+                    end,
+                    raw_payload = excluded.raw_payload,
+                    updated_at = current_timestamp
+                """,
+                (
+                    info_code,
+                    publish_date,
+                    stock_code,
+                    stock_name,
+                    record.get("market"),
+                    title,
+                    org_code,
+                    org_name,
+                    org_short_name,
+                    industry_code,
+                    industry_name,
+                    record.get("emRatingName") or record.get("rating_name"),
+                    record.get("lastEmRatingName") or record.get("previous_rating_name"),
+                    rating_change_code,
+                    record.get("ratingChangeName") or _research_rating_change_name(rating_change_code),
+                    _number_or_none(record.get("indvAimPriceL") or record.get("target_price_low")),
+                    _number_or_none(record.get("indvAimPriceT") or record.get("target_price_high")),
+                    source_url,
+                    _json_text(record.get("raw_payload") or record),
+                ),
+            )
+
+            self.conn.execute("delete from stock_research_report_authors where info_code = ?", (info_code,))
+            for sort_order, author in enumerate(record.get("author") or record.get("authors") or [], start=1):
+                text = str(author or "").strip()
+                if not text:
+                    continue
+                author_id, separator, author_name = text.partition(".")
+                if not separator:
+                    author_id, author_name = text, text
+                self.conn.execute(
+                    """
+                    insert into stock_research_report_authors(info_code, author_id, author_name, sort_order)
+                    values(?, ?, ?, ?)
+                    on conflict(info_code, author_id) do update set
+                        author_name = excluded.author_name,
+                        sort_order = excluded.sort_order
+                    """,
+                    (info_code, author_id, author_name, sort_order),
+                )
+
+            self.conn.execute("delete from stock_research_report_forecasts where info_code = ?", (info_code,))
+            base_year = _int_or_none(current_year) or _int_or_none(record.get("currentYear"))
+            if base_year:
+                forecast_fields = (
+                    (base_year, "predictThisYearEps", "predictThisYearPe"),
+                    (base_year + 1, "predictNextYearEps", "predictNextYearPe"),
+                    (base_year + 2, "predictNextTwoYearEps", "predictNextTwoYearPe"),
+                )
+                for forecast_year, eps_key, pe_key in forecast_fields:
+                    self.conn.execute(
+                        """
+                        insert into stock_research_report_forecasts(info_code, forecast_year, eps, pe)
+                        values(?, ?, ?, ?)
+                        """,
+                        (info_code, forecast_year, _number_or_none(record.get(eps_key)), _number_or_none(record.get(pe_key))),
+                    )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def save_research_report_content(self, info_code: str, content: dict[str, Any]) -> None:
+        """Save detail-page content without changing an already downloaded PDF."""
+        self.conn.execute(
+            """
+            insert into stock_research_report_contents(
+                info_code, summary_text, pdf_url, pdf_status, attach_pages,
+                declared_pdf_size_kb, raw_payload
+            )
+            values(?, ?, ?, 'pending', ?, ?, ?)
+            on conflict(info_code) do update set
+                summary_text = excluded.summary_text,
+                pdf_url = coalesce(excluded.pdf_url, stock_research_report_contents.pdf_url),
+                attach_pages = excluded.attach_pages,
+                declared_pdf_size_kb = excluded.declared_pdf_size_kb,
+                raw_payload = excluded.raw_payload,
+                updated_at = current_timestamp
+            """,
+            (
+                info_code,
+                content.get("summary_text"),
+                content.get("pdf_url"),
+                _int_or_none(content.get("attach_pages")),
+                _int_or_none(content.get("declared_pdf_size_kb")),
+                _json_text(content.get("raw_payload") or content),
+            ),
+        )
+        self.conn.execute(
+            """
+            update stock_research_reports
+            set detail_status = 'fetched', updated_at = current_timestamp
+            where info_code = ?
+            """,
+            (info_code,),
+        )
+        self.conn.commit()
+
+    def mark_research_report_pdf(self, info_code: str, **state: Any) -> None:
+        """Persist PDF download state while retaining detail content."""
+        pdf_status = state.get("pdf_status") or "failed"
+        downloaded_at = state.get("downloaded_at")
+        if pdf_status == "downloaded" and not downloaded_at:
+            downloaded_at = datetime.now().isoformat(timespec="seconds")
+        self.conn.execute(
+            """
+            insert into stock_research_report_contents(
+                info_code, pdf_status, local_pdf_path, pdf_size, pdf_sha256, pdf_error, downloaded_at
+            )
+            values(?, ?, ?, ?, ?, ?, ?)
+            on conflict(info_code) do update set
+                pdf_status = excluded.pdf_status,
+                local_pdf_path = excluded.local_pdf_path,
+                pdf_size = excluded.pdf_size,
+                pdf_sha256 = excluded.pdf_sha256,
+                pdf_error = excluded.pdf_error,
+                downloaded_at = excluded.downloaded_at,
+                updated_at = current_timestamp
+            """,
+            (
+                info_code,
+                pdf_status,
+                state.get("local_pdf_path"),
+                _int_or_none(state.get("pdf_size")),
+                state.get("pdf_sha256"),
+                state.get("pdf_error"),
+                downloaded_at,
+            ),
+        )
+        self.conn.commit()
+
+    def get_pending_research_reports(self, begin_date: str, end_date: str) -> list[dict[str, Any]]:
+        """Return reports needing detail or PDF work in an inclusive date range."""
+        rows = self.conn.execute(
+            """
+            select r.info_code, r.publish_date, r.stock_code, r.stock_name, r.source_url,
+                   r.detail_status, c.pdf_url, c.pdf_status, c.declared_pdf_size_kb
+            from stock_research_reports r
+            left join stock_research_report_contents c on c.info_code = r.info_code
+            where date(r.publish_date) between date(?) and date(?)
+              and (r.detail_status != 'fetched' or c.info_code is null or c.pdf_status != 'downloaded')
+            order by r.publish_date desc, r.info_code desc
+            """,
+            (begin_date, end_date),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def import_announcement_content(self, art_code: str, content_data: dict[str, Any]) -> bool:
         """保存公告正文，更新公告索引状态。"""
