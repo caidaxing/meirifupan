@@ -1,9 +1,11 @@
 import json
+import hashlib
 import sqlite3
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +69,85 @@ class ResearchReportStorageTests(unittest.TestCase):
         self.assertEqual(0.26, rows[0][1])
         self.assertEqual(18.21, rows[2][2])
         db.close()
+
+    def test_parse_detail_extracts_summary_and_pdf(self):
+        from research_reports import parse_research_report_detail
+
+        html = '''<html><script>
+        var zwinfo= {"info_code":"AP202607101826859348","notice_content":"盈利增长显著提速。",
+        "attach_url":"https://pdf.example/AP202607101826859348.pdf?x=1","attach_pages":"4",
+        "attach_size":"603","eitime":"2026-07-10 07:59:00"};
+        </script></html>'''
+        detail = parse_research_report_detail(html)
+
+        self.assertEqual("AP202607101826859348", detail["info_code"])
+        self.assertIn("盈利增长显著提速", detail["summary_text"])
+        self.assertTrue(detail["pdf_url"].endswith(".pdf?x=1"))
+        self.assertEqual(4, detail["attach_pages"])
+        self.assertEqual(603, detail["declared_pdf_size_kb"])
+
+    def test_download_pdf_is_atomic_and_hashed(self):
+        from research_reports import download_research_report_pdf
+
+        pdf_bytes = b"%PDF-1.4\n1 0 obj\nendobj\n"
+
+        class Response:
+            headers = {"Content-Type": "application/pdf"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, size=-1):
+                if size == -1:
+                    data, self._data = getattr(self, "_data", pdf_bytes), b""
+                    return data
+                data, self._data = getattr(self, "_data", pdf_bytes), b""
+                if not data:
+                    return b""
+                self._data = data[size:]
+                return data[:size]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "report.pdf"
+            result = download_research_report_pdf(
+                "https://pdf.example/report.pdf",
+                target,
+                opener=lambda _request, timeout=20: Response(),
+            )
+
+            self.assertTrue(target.exists())
+            self.assertFalse(target.with_suffix(".pdf.part").exists())
+            self.assertEqual(hashlib.sha256(pdf_bytes).hexdigest(), result["pdf_sha256"])
+            self.assertEqual(len(pdf_bytes), result["pdf_size"])
+
+    def test_download_pdf_rejects_non_pdf_and_removes_part(self):
+        from research_reports import download_research_report_pdf
+
+        class Response:
+            headers = {"Content-Type": "text/html"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _size=-1):
+                return b"not a pdf"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "report.pdf"
+            with self.assertRaises(ValueError):
+                download_research_report_pdf(
+                    "https://pdf.example/report.pdf",
+                    target,
+                    opener=lambda _request, timeout=20: Response(),
+                )
+            self.assertFalse(target.exists())
+            self.assertFalse(target.with_suffix(".pdf.part").exists())
 
     def test_save_content_and_pdf_state_keep_raw_payload(self):
         from db import MarketDB
