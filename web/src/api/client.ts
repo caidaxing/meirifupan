@@ -15,6 +15,8 @@ import type {
   AnnouncementDetail,
   AnnouncementListData,
   NewsListData,
+  ResearchReportListData,
+  ResearchReportDetail,
   AuthSession,
   AuthUser,
 } from '../types'
@@ -268,4 +270,37 @@ export async function fetchNewsDates(signal?: AbortSignal): Promise<string[]> {
   }
   const json = await res.json()
   return json.dates
+}
+
+export async function fetchResearchReportDates(signal?: AbortSignal): Promise<string[]> {
+  const res = await apiFetch(`${BASE}/research-reports/dates`, { signal })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch research report dates: ${res.statusText}`)
+  }
+  const json = await res.json()
+  return json.dates
+}
+
+export async function fetchResearchReports(
+  date: string,
+  params: { q?: string; rating?: string; org?: string } = {},
+  signal?: AbortSignal,
+): Promise<ResearchReportListData> {
+  const query = new URLSearchParams({ date })
+  if (params.q) query.set('q', params.q)
+  if (params.rating) query.set('rating', params.rating)
+  if (params.org) query.set('org', params.org)
+  const res = await apiFetch(`${BASE}/research-reports?${query.toString()}`, { signal })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch research reports: ${res.statusText}`)
+  }
+  return res.json()
+}
+
+export async function fetchResearchReportDetail(infoCode: string, signal?: AbortSignal): Promise<ResearchReportDetail> {
+  const res = await apiFetch(`${BASE}/research-reports/${encodeURIComponent(infoCode)}`, { signal })
+  if (!res.ok) {
+    throw new Error(`Failed to fetch research report detail: ${res.statusText}`)
+  }
+  return res.json()
 }

@@ -547,6 +547,73 @@ export interface NewsListData {
   items: NewsItem[]
 }
 
+export interface ResearchReportItem {
+  info_code: string
+  publish_date: string
+  publish_date_time?: string
+  stock_code: string | null
+  stock_name: string | null
+  market: string | null
+  title: string
+  org_code: string | null
+  org_name: string | null
+  org_short_name: string | null
+  industry_code: string | null
+  industry_name: string | null
+  rating_name: string | null
+  previous_rating_name: string | null
+  rating_change_code: number | null
+  rating_change_name: string | null
+  target_price_low: number | null
+  target_price_high: number | null
+  source_url: string | null
+  detail_status: string
+  pdf_status: 'pending' | 'downloaded' | 'failed' | string
+  attach_pages?: number | null
+  declared_pdf_size_kb?: number | null
+}
+
+export interface ResearchReportAuthor {
+  author_id: string
+  author_name: string
+  sort_order: number
+}
+
+export interface ResearchReportForecast {
+  forecast_year: number
+  eps: number | null
+  pe: number | null
+}
+
+export interface ResearchReportListData {
+  date: string
+  status: ReviewPayloadStatus
+  summary: {
+    total: number
+    returned: number
+    pdf_downloaded: number
+    ratings: Array<{ rating_name: string; count: number }>
+    organizations: Array<{ org_name: string; count: number }>
+  }
+  filters: Record<string, unknown>
+  items: ResearchReportItem[]
+}
+
+export interface ResearchReportDetail extends ResearchReportItem {
+  summary_text: string | null
+  pdf_url: string | null
+  local_pdf_path: string | null
+  pdf_size: number | null
+  pdf_sha256: string | null
+  pdf_error: string | null
+  downloaded_at: string | null
+  attach_pages: number | null
+  declared_pdf_size_kb: number | null
+  authors: ResearchReportAuthor[]
+  forecasts: ResearchReportForecast[]
+  local_pdf_url: string | null
+}
+
 export type ReviewSubmoduleKey =
   | 'limit-up-reasons'
   | 'limit-up-tiers'

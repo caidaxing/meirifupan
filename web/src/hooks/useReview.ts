@@ -18,6 +18,9 @@ import {
   fetchAnnouncementDetail,
   fetchNews,
   fetchNewsDates,
+  fetchResearchReportDates,
+  fetchResearchReports,
+  fetchResearchReportDetail,
 } from '../api/client'
 import type {
   ReviewData,
@@ -36,6 +39,8 @@ import type {
   AnnouncementDetail,
   AnnouncementListData,
   NewsListData,
+  ResearchReportListData,
+  ResearchReportDetail,
 } from '../types'
 
 export function useReview(date: string) {
@@ -415,6 +420,73 @@ export function useNews(date: string, source?: string, q?: string) {
       .finally(() => setLoading(false))
     return () => ctrl.abort()
   }, [date, source, q])
+
+  return { data, loading, error }
+}
+
+export function useResearchReportDates() {
+  const [dates, setDates] = useState<string[]>([])
+  useEffect(() => {
+    const ctrl = new AbortController()
+    fetchResearchReportDates(ctrl.signal).then(setDates).catch(e => {
+      if (e.name !== 'AbortError') console.error(e)
+    })
+    return () => ctrl.abort()
+  }, [])
+  return dates
+}
+
+export function useResearchReports(
+  date: string,
+  filters: { q?: string; rating?: string; org?: string } = {},
+) {
+  const [data, setData] = useState<ResearchReportListData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!date) {
+      setData(null)
+      setLoading(false)
+      setError(null)
+      return
+    }
+    const ctrl = new AbortController()
+    setLoading(true)
+    fetchResearchReports(date, filters, ctrl.signal)
+      .then(d => { setData(d); setError(null) })
+      .catch(e => {
+        if (e.name !== 'AbortError') setError(e.message)
+      })
+      .finally(() => setLoading(false))
+    return () => ctrl.abort()
+  }, [date, filters.q, filters.rating, filters.org])
+
+  return { data, loading, error }
+}
+
+export function useResearchReportDetail(infoCode: string | null) {
+  const [data, setData] = useState<ResearchReportDetail | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!infoCode) {
+      setData(null)
+      setLoading(false)
+      setError(null)
+      return
+    }
+    const ctrl = new AbortController()
+    setLoading(true)
+    fetchResearchReportDetail(infoCode, ctrl.signal)
+      .then(d => { setData(d); setError(null) })
+      .catch(e => {
+        if (e.name !== 'AbortError') setError(e.message)
+      })
+      .finally(() => setLoading(false))
+    return () => ctrl.abort()
+  }, [infoCode])
 
   return { data, loading, error }
 }

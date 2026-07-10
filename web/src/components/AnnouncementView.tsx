@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DateSelector } from './DateSelector'
-import { useAnnouncementDetail, useAnnouncements, useNews } from '../hooks/useReview'
+import { useAnnouncementDetail, useAnnouncements, useNews, useResearchReportDates } from '../hooks/useReview'
+import { ResearchReportView } from './ResearchReportView'
 import type { AnnouncementItem, NewsItem } from '../types'
 
 type NewsTab = 'announcements' | 'flash' | 'policy' | 'overnight' | 'research'
@@ -17,7 +18,7 @@ const tabs: { key: NewsTab; label: string; desc: string }[] = [
   { key: 'flash', label: '7x24 快讯', desc: '财联社、东财、新浪' },
   { key: 'policy', label: '政策日历', desc: '重要会议和政策发布' },
   { key: 'overnight', label: '海外隔夜', desc: '美股核心股和外盘事件' },
-  { key: 'research', label: '研报线索', desc: '后续接行业和个股线索' },
+  { key: 'research', label: '个股研报', desc: '基础信息和本地PDF' },
 ]
 
 const quickFilters: { key: QuickFilterKey; label: string; keywords: string[] }[] = [
@@ -32,7 +33,7 @@ const quickFilters: { key: QuickFilterKey; label: string; keywords: string[] }[]
   { key: 'restructure', label: '重组并购', keywords: ['重组', '并购', '收购', '资产出售', '股权转让', '重大资产'] },
 ]
 
-const placeholders: Record<Exclude<NewsTab, 'announcements'>, {
+const placeholders: Record<Exclude<NewsTab, 'announcements' | 'research'>, {
   title: string
   sources: string[]
   storedIn: string
@@ -60,13 +61,6 @@ const placeholders: Record<Exclude<NewsTab, 'announcements'>, {
     firstFields: ['symbol', 'stock_name', 'sector', 'latest_price', 'change_pct', 'raw_payload'],
     nextStep: '先展示大涨大跌美股，再映射到 A 股题材。',
   },
-  research: {
-    title: '研报线索',
-    sources: ['后续选择研报/券商公开摘要源'],
-    storedIn: '待新增 research_notes',
-    firstFields: ['published_at', 'org_name', 'stock_code', 'stock_name', 'title', 'summary'],
-    nextStep: '先做结构占位，等数据源确认后再接。',
-  },
 }
 
 export function AnnouncementView({ date, dates, onDateChange }: Props) {
@@ -77,9 +71,12 @@ export function AnnouncementView({ date, dates, onDateChange }: Props) {
   const [newsKeyword, setNewsKeyword] = useState('')
   const [selectedNewsSource, setSelectedNewsSource] = useState('')
   const [selectedArtCode, setSelectedArtCode] = useState<string | null>(null)
+  const [researchDate, setResearchDate] = useState('')
+  const researchDates = useResearchReportDates()
   const { data, loading, error } = useAnnouncements(date)
   const news = useNews(date, selectedNewsSource, newsKeyword)
   const detail = useAnnouncementDetail(selectedArtCode)
+  const effectiveResearchDate = researchDates.includes(researchDate) ? researchDate : researchDates[0] ?? ''
   const totalCount = data?.summary.total ?? 0
   const returnedCount = data?.summary.returned ?? data?.items.length ?? 0
   const isLimited = totalCount > returnedCount
@@ -193,8 +190,12 @@ export function AnnouncementView({ date, dates, onDateChange }: Props) {
         </div>
       )}
 
-      {activeTab !== 'announcements' && activeTab !== 'flash' && (
+      {activeTab !== 'announcements' && activeTab !== 'flash' && activeTab !== 'research' && (
         <NewsPlaceholder config={placeholders[activeTab]} />
+      )}
+
+      {activeTab === 'research' && (
+        <ResearchReportView date={effectiveResearchDate} dates={researchDates} onDateChange={setResearchDate} />
       )}
 
       {activeTab === 'flash' && (

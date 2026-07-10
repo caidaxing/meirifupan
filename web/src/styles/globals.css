@@ -3997,6 +3997,110 @@ html, body {
   padding: 18px;
 }
 
+.research-report-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.research-report-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.research-report-list,
+.research-report-detail {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.research-report-list {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+}
+
+.research-report-detail {
+  min-height: 520px;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  padding: 18px;
+}
+
+.research-pdf-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  font-size: 11px;
+}
+
+.research-pdf-status.downloaded {
+  color: var(--color-green);
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.research-pdf-status.failed {
+  color: var(--color-red);
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.research-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.research-report-metrics > div {
+  min-width: 0;
+  padding: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.research-report-metrics span,
+.research-report-metrics strong {
+  display: block;
+}
+
+.research-report-metrics span,
+.research-report-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.research-report-metrics strong {
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.research-report-authors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.research-report-section {
+  margin-top: 18px;
+}
+
+.research-report-section h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
 .announcement-detail h2 {
   margin: 10px 0;
   font-size: 20px;
@@ -4176,8 +4280,18 @@ html, body {
   }
 
   .announcement-list,
-  .announcement-detail {
+  .announcement-detail,
+  .research-report-list,
+  .research-report-detail {
     max-height: none;
+  }
+
+  .research-report-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .research-report-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
