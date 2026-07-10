@@ -1931,7 +1931,7 @@ class MarketDB:
             from stock_research_reports r
             left join stock_research_report_contents c on c.info_code = r.info_code
             where date(r.publish_date) between date(?) and date(?)
-              and (r.detail_status != 'fetched' or c.info_code is null or c.pdf_status != 'downloaded')
+              and (r.detail_status != 'fetched' or c.info_code is null or c.pdf_status not in ('downloaded', 'unavailable'))
             order by r.publish_date desc, r.info_code desc
             """,
             (begin_date, end_date),

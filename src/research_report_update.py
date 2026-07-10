@@ -36,7 +36,7 @@ def _process_one(
     info_code = str(item["info_code"])
     db = MarketDB(db_path)
     db.init_schema()
-    result = {"info_code": info_code, "detail": False, "pdf": False, "bytes": 0, "error": None}
+    result = {"info_code": info_code, "detail": False, "pdf": False, "unavailable": False, "bytes": 0, "error": None}
     try:
         detail = fetch_research_report_detail(info_code, url=item.get("source_url"))
         db.save_research_report_content(info_code, detail)
@@ -44,6 +44,14 @@ def _process_one(
         pdf_url = detail.get("pdf_url")
         if not pdf_url:
             raise ValueError("research report has no PDF URL")
+        if str(pdf_url).split("?", 1)[0].lower().endswith(".txt"):
+            db.mark_research_report_pdf(
+                info_code,
+                pdf_status="unavailable",
+                pdf_error="source attachment is text/plain; no PDF available",
+            )
+            result["unavailable"] = True
+            return result
 
         report_date = str(item.get("publish_date") or "")[:10]
         target = data_root / report_date.replace("-", "/") / f"{info_code}.pdf"
@@ -131,7 +139,8 @@ def run_research_report_update(
             "detail_success": sum(1 for item in results if item["detail"]),
             "detail_failed": sum(1 for item in results if not item["detail"]),
             "pdf_success": sum(1 for item in results if item["pdf"]),
-            "pdf_failed": sum(1 for item in results if not item["pdf"]),
+            "pdf_failed": sum(1 for item in results if not item["pdf"] and not item["unavailable"]),
+            "pdf_unavailable": sum(1 for item in results if item["unavailable"]),
             "pdf_bytes": sum(int(item.get("bytes") or 0) for item in results),
             "failed_ids": [item["info_code"] for item in failed],
         })

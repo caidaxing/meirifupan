@@ -10,6 +10,11 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
+# Eastmoney PDF anti-bot fallback used by the research report downloader.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Python dependencies
 COPY server/requirements.txt ./server/
 RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com -r server/requirements.txt

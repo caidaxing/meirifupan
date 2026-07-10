@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import ssl
+import subprocess
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
@@ -214,6 +216,12 @@ def download_research_report_pdf(
                     if not chunk:
                         break
                     if first_chunk and not chunk.startswith(b"%PDF-"):
+                        output.close()
+                        if _download_pdf_with_curl(url, partial):
+                            file_bytes = partial.read_bytes()
+                            size = len(file_bytes)
+                            digest = hashlib.sha256(file_bytes)
+                            break
                         raise ValueError("Downloaded file does not start with %PDF-")
                     first_chunk = False
                     output.write(chunk)
@@ -232,3 +240,36 @@ def download_research_report_pdf(
         "pdf_size": size,
         "pdf_sha256": digest.hexdigest(),
     }
+
+
+def _download_pdf_with_curl(url: str, partial: Path) -> bool:
+    """Retry Eastmoney PDF downloads with curl when its anti-bot layer rejects urllib."""
+    curl = shutil.which("curl")
+    if not curl or "pdf.dfcfw.com" not in url:
+        return False
+    partial.unlink(missing_ok=True)
+    try:
+        subprocess.run(
+            [
+                curl,
+                "-L",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--compressed",
+                "--output",
+                str(partial),
+                "-H",
+                "Referer: https://data.eastmoney.com/",
+                "-H",
+                f"User-Agent: {USER_AGENT}",
+                url,
+            ],
+            check=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        partial.unlink(missing_ok=True)
+        return False
+    with partial.open("rb") as stream:
+        return stream.read(5) == b"%PDF-"

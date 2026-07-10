@@ -82,7 +82,7 @@ function ResearchReportCard({ item, active, onClick }: { item: ResearchReportIte
         <span className="announcement-code">{item.stock_code || '--'}</span>
         <span>{item.stock_name || '未知股票'}</span>
         {item.rating_name && <span className="announcement-type">{item.rating_name}</span>}
-        <span className={`research-pdf-status ${item.pdf_status}`}>{item.pdf_status === 'downloaded' ? 'PDF已下载' : item.pdf_status === 'failed' ? 'PDF失败' : 'PDF待取'}</span>
+        <span className={`research-pdf-status ${item.pdf_status}`}>{item.pdf_status === 'downloaded' ? 'PDF已下载' : item.pdf_status === 'unavailable' ? '无PDF附件' : item.pdf_status === 'failed' ? 'PDF失败' : 'PDF待取'}</span>
       </div>
       <div className="announcement-title">{item.title}</div>
       <div className="announcement-card-bottom">
@@ -102,7 +102,7 @@ function ResearchReportDetail({ data }: { data: NonNullable<ReturnType<typeof us
     <>
       <div className="announcement-detail-head">
         <span className="announcement-type">{data.rating_name || '未评级'}</span>
-        <span className={`research-pdf-status ${data.pdf_status}`}>{data.pdf_status === 'downloaded' ? '本地 PDF 已就绪' : data.pdf_status}</span>
+        <span className={`research-pdf-status ${data.pdf_status}`}>{data.pdf_status === 'downloaded' ? '本地 PDF 已就绪' : data.pdf_status === 'unavailable' ? '源站无 PDF 附件' : data.pdf_status}</span>
       </div>
       <h2>{data.title}</h2>
       <div className="announcement-meta">
