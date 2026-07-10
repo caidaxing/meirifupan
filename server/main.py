@@ -18,6 +18,7 @@ if str(SRC_DIR) not in sys.path:
 from server.api.auth import router as auth_router
 from server.api.dates import router as dates_router
 from server.api.review import router as review_router
+from server.api.research_reports import router as research_reports_router
 from server.services.review_queries import DB_PATH
 
 
@@ -48,6 +49,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(dates_router)
 app.include_router(review_router)
+app.include_router(research_reports_router)
 
 
 @app.get("/api/health")

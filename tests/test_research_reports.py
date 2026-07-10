@@ -201,6 +201,65 @@ class ResearchReportStorageTests(unittest.TestCase):
         self.assertEqual({"AP202607101826859348", "AP202607091826859348"}, {row["info_code"] for row in pending})
         db.close()
 
+    def test_list_reports_filters_and_counts_downloaded_pdf(self):
+        from server.services.research_report_queries import list_research_reports
+        from db import MarketDB
+
+        db = MarketDB(self.db_path)
+        db.init_schema()
+        db.import_research_reports([SAMPLE_LIST_ROW], current_year=2026)
+        db.save_research_report_content(
+            SAMPLE_LIST_ROW["infoCode"],
+            {"summary_text": "摘要", "pdf_url": "https://pdf.example/report.pdf"},
+        )
+        db.mark_research_report_pdf(
+            SAMPLE_LIST_ROW["infoCode"],
+            pdf_status="downloaded",
+            local_pdf_path="2026/07/10/AP202607101826859348.pdf",
+            pdf_size=10,
+            pdf_sha256="sha",
+        )
+        payload = list_research_reports(db.conn, "2026-07-10", rating="增持")
+
+        self.assertEqual(1, payload["summary"]["total"])
+        self.assertEqual(1, payload["summary"]["pdf_downloaded"])
+        self.assertEqual("AP202607101826859348", payload["items"][0]["info_code"])
+        db.close()
+
+    def test_detail_and_pdf_path_resolution(self):
+        from server.services.research_report_queries import get_research_report_detail, resolve_research_report_pdf
+        from db import MarketDB
+
+        db = MarketDB(self.db_path)
+        db.init_schema()
+        db.import_research_reports([SAMPLE_LIST_ROW], current_year=2026)
+        db.save_research_report_content(
+            SAMPLE_LIST_ROW["infoCode"],
+            {"summary_text": "摘要", "pdf_url": "https://pdf.example/report.pdf"},
+        )
+        db.mark_research_report_pdf(
+            SAMPLE_LIST_ROW["infoCode"],
+            pdf_status="downloaded",
+            local_pdf_path="2026/07/10/AP202607101826859348.pdf",
+            pdf_size=10,
+            pdf_sha256="sha",
+        )
+        detail = get_research_report_detail(db.conn, SAMPLE_LIST_ROW["infoCode"])
+        self.assertEqual(2, len(detail["authors"]))
+        self.assertEqual([2026, 2027, 2028], [row["forecast_year"] for row in detail["forecasts"]])
+        self.assertTrue(detail["local_pdf_url"].endswith("/AP202607101826859348/pdf"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            pdf_path = data_root / "2026/07/10/AP202607101826859348.pdf"
+            pdf_path.parent.mkdir(parents=True)
+            pdf_path.write_bytes(b"%PDF-1.4\n")
+            resolved = resolve_research_report_pdf(db.conn, SAMPLE_LIST_ROW["infoCode"], data_root)
+            self.assertEqual(pdf_path.resolve(), resolved)
+            with self.assertRaises(FileNotFoundError):
+                resolve_research_report_pdf(db.conn, "AP-MISSING", data_root)
+        db.close()
+
 
 if __name__ == "__main__":
     unittest.main()
