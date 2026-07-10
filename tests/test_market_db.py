@@ -221,6 +221,19 @@ class MarketDbTests(unittest.TestCase):
             due_interval_task_names({"news_update": 10}, target=now, now=planning_now),
         )
 
+    def test_research_report_schedule_runs_twice_daily(self):
+        from daily_scheduler import due_task_names
+
+        schedule = {"research_reports_update": ["07:30", "19:30"]}
+        self.assertEqual(
+            ["research_reports_update"],
+            due_task_names(schedule, datetime(2026, 7, 10, 7, 30)),
+        )
+        self.assertEqual(
+            ["research_reports_update"],
+            due_task_names(schedule, datetime(2026, 7, 10, 19, 30)),
+        )
+
     def test_daily_update_records_missing_token_failure(self):
         import daily_update
         from server.services.review_queries import get_latest_data_job

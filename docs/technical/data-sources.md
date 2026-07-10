@@ -115,6 +115,16 @@
 | 30 | AkShare / CCTV `news_cctv` | CCTV 新闻联播 | AkShare 封装 | 公开 | 链末端 | premarket_news | 盘前 08:30 |
 | 31 | AkShare / 东财 `stock_notice_report` | A 股公司公告（个股、类型、标题、URL） | AkShare 封装 | 公开 | 失败返回空 | stock_announcements | 盘前 08:30 |
 
+### 10.1 个股研报
+
+| 来源 | 采集内容 | 方式 | 认证 | 存储 |
+|---|---|---|---|---|
+| 东方财富 `reportapi.eastmoney.com/report/list2` | 个股研报列表、股票、机构、分析师、评级、盈利预测 | POST JSON 分页 | 公开 | `stock_research_reports`、`stock_research_report_authors`、`stock_research_report_forecasts` |
+| 东方财富 `data.eastmoney.com/report/info/{info_code}.html` | 研报摘要、详情原始 JSON、PDF 地址 | HTML 中解析 `zwinfo` | 公开 | `stock_research_report_contents` |
+| 东方财富 `pdf.dfcfw.com` | 研报 PDF 原文 | 下载后校验并原子落盘 | 公开 | `data/research_reports/YYYY/MM/DD/{info_code}.pdf` |
+
+首轮回补最近 30 个自然日；增量任务每日 `07:30`、`19:30` 执行，每次覆盖最近 2 个自然日并补抓失败项。
+
 ### 11. 隔夜美股
 
 | # | 来源 | 采集内容 | 方式 | 认证 | 兜底策略 | 存储表 | 调度 |

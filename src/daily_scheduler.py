@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from daily_update import run_daily_update
 from fetch_missing_data import DEFAULT_DB_PATH
 from news_update import run_announcements_update, run_news_update
+from research_report_update import run_research_report_update
 
 
 DailySchedule = dict[str, str | list[str]]
@@ -105,17 +106,20 @@ def run_scheduler(
     force: bool = False,
     news_interval_minutes: int = 10,
     announcement_ats: list[str] | None = None,
+    research_report_ats: list[str] | None = None,
 ) -> None:
     announcement_ats = announcement_ats or ["17:30", "22:00"]
+    research_report_ats = research_report_ats or ["07:30", "19:30"]
     daily_schedule: DailySchedule = {
         "announcements_update": announcement_ats,
+        "research_reports_update": research_report_ats,
         "daily_update": [run_at],
     }
     interval_schedule: IntervalSchedule = {
         "news_update": news_interval_minutes,
     }
     print(
-        f"自动调度已启动: 新闻每 {news_interval_minutes} 分钟，公告 {','.join(announcement_ats)}，复盘 {run_at}，数据库 {db_path}",
+        f"自动调度已启动: 新闻每 {news_interval_minutes} 分钟，公告 {','.join(announcement_ats)}，研报 {','.join(research_report_ats)}，复盘 {run_at}，数据库 {db_path}",
         flush=True,
     )
     while True:
@@ -135,6 +139,9 @@ def run_scheduler(
                 elif due_task == "announcements_update":
                     summary = run_announcements_update(db_path=db_path)
                     print(f"公告结束: {summary.get('notice_date')} {summary.get('status')} {summary.get('message')}", flush=True)
+                elif due_task == "research_reports_update":
+                    summary = run_research_report_update(db_path=db_path, backfill_days=2)
+                    print(f"研报结束: {summary.get('end_date')} {summary.get('status')} {summary.get('message')}", flush=True)
                 elif due_task == "daily_update":
                     summary = run_daily_update(db_path=db_path, kline_limit=kline_limit, force=force)
                     print(f"复盘结束: {summary.get('trade_date')} {summary.get('status')} {summary.get('message')}", flush=True)
@@ -160,8 +167,15 @@ def main() -> None:
         default=None,
         help="公告更新时间，格式 HH:MM；可重复传入。默认读取 ANNOUNCEMENT_UPDATE_ATS=17:30,22:00",
     )
+    parser.add_argument(
+        "--research-report-at",
+        action="append",
+        default=None,
+        help="研报更新时间，格式 HH:MM；可重复传入。默认读取 RESEARCH_REPORT_UPDATE_ATS=07:30,19:30",
+    )
     args = parser.parse_args()
     announcement_ats = args.announcement_at or _parse_time_list(os.environ.get("ANNOUNCEMENT_UPDATE_ATS", "17:30,22:00"))
+    research_report_ats = args.research_report_at or _parse_time_list(os.environ.get("RESEARCH_REPORT_UPDATE_ATS", "07:30,19:30"))
 
     run_scheduler(
         args.run_at,
@@ -170,6 +184,7 @@ def main() -> None:
         args.force,
         args.news_interval_minutes,
         announcement_ats,
+        research_report_ats,
     )
 
 
