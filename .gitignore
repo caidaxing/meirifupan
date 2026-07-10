@@ -4,6 +4,7 @@ web/stock-chat/node_modules/
 .venv/
 .npm-cache/
 .codex-runtime/
+.worktrees/
 
 # Build output
 web/dist/
